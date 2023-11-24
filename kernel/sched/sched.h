@@ -3481,4 +3481,27 @@ static inline void init_sched_mm_cid(struct task_struct *t) { }
 extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
 extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
 
+enum force_cpumask_type {
+	FORCE_CPUMASK_BEGIN,
+	FORCE_CPUMASK_ENERGY,
+	FORCE_CPUMASK_PERFORMANCE,
+	FORCE_CPUMASK_END,
+};
+static inline  bool is_valid_force_cpumask_type(enum force_cpumask_type t)
+{
+	if (t <= FORCE_CPUMASK_BEGIN)
+		return false;
+
+	if (t >= FORCE_CPUMASK_END)
+		return false;
+
+	return true;
+}
+
+extern enum force_cpumask_type force_cpumask_index;
+void init_task_force_cpumask(unsigned long clone_flags,
+			     struct task_struct *p);
+struct cpumask* get_force_cpumask(enum force_cpumask_type t);
+long sched_setaffinity_task_rcu(struct task_struct *p,
+				const struct cpumask *in_mask);
 #endif /* _KERNEL_SCHED_SCHED_H */

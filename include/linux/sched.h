@@ -1554,6 +1554,8 @@ struct task_struct {
 	struct user_event_mm		*user_event_mm;
 #endif
 
+	struct callback_head		force_cpumask_work;
+	int force_cpumask_index;
 	/*
 	 * New fields for task_struct should be added above here, so that
 	 * they are included in the randomized portion of task_struct.

@@ -4565,6 +4565,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->migration_pending = NULL;
 #endif
 	init_sched_mm_cid(p);
+	init_task_force_cpumask(clone_flags, p);
 }
 
 DEFINE_STATIC_KEY_FALSE(sched_numa_balancing);
@@ -8416,28 +8417,34 @@ out_free_cpus_allowed:
 	return retval;
 }
 
-long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
+/* read rcu is hold */
+long sched_setaffinity_task_rcu(struct task_struct *p,
+				const struct cpumask *in_mask)
 {
 	struct affinity_context ac;
 	struct cpumask *user_mask;
 	int retval;
 
-	CLASS(find_get_task, p)(pid);
-	if (!p)
-		return -ESRCH;
+	WARN_ON_ONCE(!rcu_read_lock_held());
 
-	if (p->flags & PF_NO_SETAFFINITY)
-		return -EINVAL;
+	/* Prevent p going away */
+	get_task_struct(p);
+
+	if (p->flags & PF_NO_SETAFFINITY) {
+		retval = -EINVAL;
+		goto out_put_task;
+	}
 
 	if (!check_same_owner(p)) {
-		guard(rcu)();
-		if (!ns_capable(__task_cred(p)->user_ns, CAP_SYS_NICE))
-			return -EPERM;
+		if (!ns_capable(__task_cred(p)->user_ns, CAP_SYS_NICE)) {
+			retval = -EPERM;
+			goto out_put_task;
+		}
 	}
 
 	retval = security_task_setscheduler(p);
 	if (retval)
-		return retval;
+		goto out_put_task;
 
 	/*
 	 * With non-SMP configs, user_cpus_ptr/user_mask isn't used and
@@ -8447,7 +8454,8 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	if (user_mask) {
 		cpumask_copy(user_mask, in_mask);
 	} else if (IS_ENABLED(CONFIG_SMP)) {
-		return -ENOMEM;
+		retval = -ENOMEM;
+		goto out_put_task;
 	}
 
 	ac = (struct affinity_context){
@@ -8459,6 +8467,26 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	retval = __sched_setaffinity(p, &ac);
 	kfree(ac.user_mask);
 
+out_put_task:
+	put_task_struct(p);
+	return retval;
+}
+
+long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
+{
+	struct task_struct *p;
+	int retval;
+
+	rcu_read_lock();
+
+	p = find_process_by_pid(pid);
+	if (!p) {
+		rcu_read_unlock();
+		return -ESRCH;
+	}
+
+	retval =  sched_setaffinity_task_rcu(p, in_mask);
+	rcu_read_unlock();
 	return retval;
 }
 
@@ -9657,6 +9685,36 @@ static int cpuset_cpu_inactive(unsigned int cpu)
 	return 0;
 }
 
+static cpumask_var_t force_cpumasks[2];
+enum force_cpumask_type force_cpumask_index;
+
+static cpumask_var_t* __get_force_cpumask(enum force_cpumask_type t)
+{
+	if (!is_valid_force_cpumask_type(t))
+		return NULL;
+
+	return &force_cpumasks[t - 1];
+}
+
+struct cpumask* get_force_cpumask(enum force_cpumask_type t)
+{
+	cpumask_var_t* ret;
+
+	ret = __get_force_cpumask(t);
+	if (!ret)
+		return NULL;
+	return *ret;
+}
+
+void set_force_cpumask_index(int index)
+{
+	if (!is_valid_force_cpumask_type(index))
+		return;
+
+	force_cpumask_index = index;
+}
+EXPORT_SYMBOL(set_force_cpumask_index);
+
 int sched_cpu_activate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
@@ -10105,6 +10163,13 @@ void __init sched_init(void)
 	init_uclamp();
 
 	preempt_dynamic_init();
+
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ENERGY),
+			  GFP_KERNEL);
+	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ENERGY));
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_PERFORMANCE),
+			  GFP_KERNEL);
+	cpumask_setall(get_force_cpumask(FORCE_CPUMASK_PERFORMANCE));
 
 	scheduler_running = 1;
 }

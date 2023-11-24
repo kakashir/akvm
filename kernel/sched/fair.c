@@ -12662,6 +12662,7 @@ static int task_is_throttled_fair(struct task_struct *p, int cpu)
 static inline void task_tick_core(struct rq *rq, struct task_struct *curr) {}
 #endif
 
+static void task_tick_force_cpumask(struct rq *rq, struct task_struct *curr);
 /*
  * scheduler tick hitting a task of our scheduling class.
  *
@@ -12679,6 +12680,8 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 		cfs_rq = cfs_rq_of(se);
 		entity_tick(cfs_rq, se, queued);
 	}
+
+	task_tick_force_cpumask(rq, curr);
 
 	if (static_branch_unlikely(&sched_numa_balancing))
 		task_tick_numa(rq, curr);
@@ -13265,6 +13268,48 @@ void show_numa_stats(struct task_struct *p, struct seq_file *m)
 #endif /* CONFIG_NUMA_BALANCING */
 #endif /* CONFIG_SCHED_DEBUG */
 
+static void task_tick_force_cpumask(struct rq *rq, struct task_struct *curr)
+{
+	struct callback_head *work = &curr->force_cpumask_work;
+
+	if (!is_valid_force_cpumask_type(force_cpumask_index))
+		return;
+
+	if (work->next != work)
+		return;
+
+	if (!curr->mm || (curr->flags & (PF_EXITING | PF_KTHREAD)))
+		return;
+
+	task_work_add(curr, work, TWA_RESUME);
+}
+
+static void task_force_cpumask_work(struct callback_head *work)
+{
+	struct task_struct *p = current;
+
+	work->next = work;
+
+	if (p->flags & PF_EXITING)
+		return;
+
+	/* Success if task is already running on preferred CPU */
+	if (force_cpumask_index == p->force_cpumask_index)
+		return;
+
+	p->force_cpumask_index = force_cpumask_index;
+
+	rcu_read_lock();
+	sched_setaffinity_task_rcu(p, get_force_cpumask(force_cpumask_index));
+	rcu_read_unlock();
+}
+
+void init_task_force_cpumask(unsigned long clone_flags, struct task_struct *p)
+{
+	p->force_cpumask_work.next = &p->force_cpumask_work;
+	init_task_work(&p->force_cpumask_work, task_force_cpumask_work);
+}
+
 __init void init_sched_fair_class(void)
 {
 #ifdef CONFIG_SMP
@@ -13290,5 +13335,4 @@ __init void init_sched_fair_class(void)
 	zalloc_cpumask_var(&nohz.idle_cpus_mask, GFP_NOWAIT);
 #endif
 #endif /* SMP */
-
 }
