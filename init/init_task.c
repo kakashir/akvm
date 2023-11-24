@@ -267,6 +267,7 @@ struct task_struct init_task __aligned(L1_CACHE_BYTES) = {
 #ifdef CONFIG_SCHED_MM_CID
 	.mm_cid		= { .cid = MM_CID_UNSET, },
 #endif
+	.force_cpumask_index = FORCE_CPUMASK_ALL,
 };
 EXPORT_SYMBOL(init_task);
 

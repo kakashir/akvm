@@ -4252,4 +4252,22 @@ DEFINE_CLASS_IS_UNCONDITIONAL(sched_change)
 
 #include "ext/ext.h"
 
+static inline  bool is_valid_force_cpumask_type(enum force_cpumask_type t)
+{
+	if (t <= FORCE_CPUMASK_BEGIN)
+		return false;
+
+	if (t >= FORCE_CPUMASK_END)
+		return false;
+
+	return true;
+}
+
+extern enum force_cpumask_type force_cpumask_index;
+void init_task_force_cpumask(unsigned long clone_flags,
+			     struct task_struct *p);
+struct cpumask* get_force_cpumask(enum force_cpumask_type t);
+void set_force_cpumask_index(int index);
+long sched_setaffinity_task_rcu(struct task_struct *p,
+				const struct cpumask *in_mask);
 #endif /* _KERNEL_SCHED_SCHED_H */

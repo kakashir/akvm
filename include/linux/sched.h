@@ -1680,6 +1680,9 @@ struct task_struct {
 	struct unwind_task_info		unwind_info;
 #endif
 
+	struct callback_head		force_cpumask_work;
+	int force_cpumask_index;
+
 	/* CPU-specific state of this task: */
 	struct thread_struct		thread;
 

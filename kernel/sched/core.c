@@ -4636,6 +4636,8 @@ static void __sched_fork(u64 clone_flags, struct task_struct *p)
 	p->wake_entry.u_flags = CSD_TYPE_TTWU;
 	p->migration_pending = NULL;
 	init_sched_mm(p);
+
+	init_task_force_cpumask(clone_flags, p);
 }
 
 DEFINE_STATIC_KEY_FALSE(sched_numa_balancing);
@@ -8724,6 +8726,36 @@ static inline void sched_smt_present_dec(int cpu)
 		static_branch_dec_cpuslocked(&sched_smt_present);
 }
 
+static cpumask_var_t force_cpumasks[FORCE_CPUMASK_ALL];
+enum force_cpumask_type force_cpumask_index;
+
+static cpumask_var_t* __get_force_cpumask(enum force_cpumask_type t)
+{
+	if (!is_valid_force_cpumask_type(t))
+		return NULL;
+
+	return &force_cpumasks[t - 1];
+}
+
+struct cpumask* get_force_cpumask(enum force_cpumask_type t)
+{
+	cpumask_var_t* ret;
+
+	ret = __get_force_cpumask(t);
+	if (!ret)
+		return NULL;
+	return *ret;
+}
+
+void set_force_cpumask_index(int index)
+{
+	if (!is_valid_force_cpumask_type(index))
+		return;
+
+	force_cpumask_index = index;
+}
+EXPORT_SYMBOL(set_force_cpumask_index);
+
 int sched_cpu_activate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
@@ -9170,6 +9202,17 @@ void __init sched_init(void)
 	init_uclamp();
 
 	preempt_dynamic_init();
+
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ECORE),
+			  GFP_KERNEL);
+	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ECORE));
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_PCORE),
+			  GFP_KERNEL);
+	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_PCORE));
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ALL),
+			  GFP_KERNEL);
+	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ALL));
+	force_cpumask_index = FORCE_CPUMASK_ALL;
 
 	scheduler_running = 1;
 }
