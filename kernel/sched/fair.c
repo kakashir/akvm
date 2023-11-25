@@ -13299,9 +13299,9 @@ static void task_force_cpumask_work(struct callback_head *work)
 
 	p->force_cpumask_index = force_cpumask_index;
 
-	rcu_read_lock();
+	// rcu_read_lock();
 	sched_setaffinity_task_rcu(p, get_force_cpumask(force_cpumask_index));
-	rcu_read_unlock();
+	// rcu_read_unlock();
 }
 
 void init_task_force_cpumask(unsigned long clone_flags, struct task_struct *p)

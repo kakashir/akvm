@@ -2212,4 +2212,8 @@ static __always_inline void alloc_tag_restore(struct alloc_tag *tag, struct allo
 #define alloc_tag_restore(_tag, _old)		do {} while (0)
 #endif
 
+#define CPU_ET_ECORE 1
+#define CPU_ET_PCORE 2
+DECLARE_PER_CPU(int, cpu_energy_type);
+
 #endif

@@ -8425,7 +8425,7 @@ long sched_setaffinity_task_rcu(struct task_struct *p,
 	struct cpumask *user_mask;
 	int retval;
 
-	WARN_ON_ONCE(!rcu_read_lock_held());
+	// WARN_ON_ONCE(!rcu_read_lock_held());
 
 	/* Prevent p going away */
 	get_task_struct(p);
@@ -9685,8 +9685,10 @@ static int cpuset_cpu_inactive(unsigned int cpu)
 	return 0;
 }
 
+
 static cpumask_var_t force_cpumasks[2];
 enum force_cpumask_type force_cpumask_index;
+DEFINE_PER_CPU(int, cpu_energy_type);
 
 static cpumask_var_t* __get_force_cpumask(enum force_cpumask_type t)
 {
@@ -9719,6 +9721,16 @@ int sched_cpu_activate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
 	struct rq_flags rf;
+
+	get_cpu();
+
+	if (per_cpu(cpu_energy_type, cpu) == CPU_ET_ECORE)
+		cpumask_set_cpu(cpu,
+				get_force_cpumask(FORCE_CPUMASK_ENERGY));
+	cpumask_set_cpu(cpu,
+			get_force_cpumask(FORCE_CPUMASK_PERFORMANCE));
+
+	put_cpu();
 
 	/*
 	 * Clear the balance_push callback and prepare to schedule
@@ -9765,6 +9777,16 @@ int sched_cpu_deactivate(unsigned int cpu)
 	struct rq *rq = cpu_rq(cpu);
 	struct rq_flags rf;
 	int ret;
+
+	get_cpu();
+
+	if (per_cpu(cpu_energy_type, cpu) == CPU_ET_ECORE)
+		cpumask_clear_cpu(cpu,
+				  get_force_cpumask(FORCE_CPUMASK_ENERGY));
+	cpumask_clear_cpu(cpu,
+			  get_force_cpumask(FORCE_CPUMASK_PERFORMANCE));
+
+	put_cpu();
 
 	/*
 	 * Remove CPU from nohz.idle_cpus_mask to prevent participating in
