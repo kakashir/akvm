@@ -14,11 +14,11 @@ struct opt_map {
 };
 
 static struct opt_map str_to_opt[] = {
-	{.str = "energy", .opt = CPU_ET_ECORE},
-	{.str = "performance", .opt = CPU_ET_PCORE},
+	{.str = "pcore", .opt = FORCE_CPUMASK_PCORE},
+	{.str = "ecore", .opt = FORCE_CPUMASK_ECORE},
+	{.str = "all", .opt = FORCE_CPUMASK_ALL},
 	{.str = NULL, .opt = 0},
 };
-
 
 static ssize_t force_cpumask_proc_write(struct file *file, const char __user *ubuf,
 					size_t size, loff_t *offset)
@@ -44,7 +44,7 @@ static ssize_t force_cpumask_proc_write(struct file *file, const char __user *ub
 	}
 
 	if (str_to_opt[i].str) {
-		pr_info("set force cpumask to:%s\n", __func__, str_to_opt[i].str);
+		pr_info("Set force cpumask to:%s\n", str_to_opt[i].str);
 		set_force_cpumask_index(str_to_opt[i].opt);
 	}
 
