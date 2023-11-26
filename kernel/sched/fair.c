@@ -13275,6 +13275,9 @@ static void task_tick_force_cpumask(struct rq *rq, struct task_struct *curr)
 	if (!is_valid_force_cpumask_type(force_cpumask_index))
 		return;
 
+	if (force_cpumask_index == curr->force_cpumask_index)
+		return;
+
 	if (work->next != work)
 		return;
 
@@ -13291,10 +13294,6 @@ static void task_force_cpumask_work(struct callback_head *work)
 	work->next = work;
 
 	if (p->flags & PF_EXITING)
-		return;
-
-	/* Success if task is already running on preferred CPU */
-	if (force_cpumask_index == p->force_cpumask_index)
 		return;
 
 	p->force_cpumask_index = force_cpumask_index;

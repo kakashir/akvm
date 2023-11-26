@@ -3481,12 +3481,6 @@ static inline void init_sched_mm_cid(struct task_struct *t) { }
 extern u64 avg_vruntime(struct cfs_rq *cfs_rq);
 extern int entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se);
 
-enum force_cpumask_type {
-	FORCE_CPUMASK_BEGIN,
-	FORCE_CPUMASK_ENERGY,
-	FORCE_CPUMASK_PERFORMANCE,
-	FORCE_CPUMASK_END,
-};
 static inline  bool is_valid_force_cpumask_type(enum force_cpumask_type t)
 {
 	if (t <= FORCE_CPUMASK_BEGIN)

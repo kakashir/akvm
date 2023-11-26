@@ -9685,8 +9685,7 @@ static int cpuset_cpu_inactive(unsigned int cpu)
 	return 0;
 }
 
-
-static cpumask_var_t force_cpumasks[2];
+static cpumask_var_t force_cpumasks[FORCE_CPUMASK_ALL];
 enum force_cpumask_type force_cpumask_index;
 DEFINE_PER_CPU(int, cpu_energy_type);
 
@@ -9717,19 +9716,49 @@ void set_force_cpumask_index(int index)
 }
 EXPORT_SYMBOL(set_force_cpumask_index);
 
+static void set_force_cpumask(int cpu)
+{
+	cpumask_set_cpu(cpu, get_force_cpumask(FORCE_CPUMASK_ALL));
+	switch (per_cpu(cpu_energy_type, cpu)) {
+	case CPU_ET_ECORE:
+		cpumask_set_cpu(cpu,
+				get_force_cpumask(FORCE_CPUMASK_ECORE));
+		break;
+	case CPU_ET_PCORE:
+		cpumask_set_cpu(cpu,
+				get_force_cpumask(FORCE_CPUMASK_PCORE));
+		break;
+	default:
+		pr_warn("Unknow CPU energy type 0x%d for cpu %d\n",
+			per_cpu(cpu_energy_type, cpu), cpu);
+	}
+}
+
+static void clear_force_cpumask(int cpu)
+{
+	cpumask_clear_cpu(cpu, get_force_cpumask(FORCE_CPUMASK_ALL));
+	switch (per_cpu(cpu_energy_type, cpu)) {
+	case CPU_ET_ECORE:
+		cpumask_clear_cpu(cpu,
+				  get_force_cpumask(FORCE_CPUMASK_ECORE));
+		break;
+	case CPU_ET_PCORE:
+		cpumask_clear_cpu(cpu,
+				  get_force_cpumask(FORCE_CPUMASK_PCORE));
+		break;
+	default:
+		pr_warn("Unknow CPU energy type 0x%d for cpu %d\n",
+			per_cpu(cpu_energy_type, cpu), cpu);
+	}
+}
+
 int sched_cpu_activate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
 	struct rq_flags rf;
 
 	get_cpu();
-
-	if (per_cpu(cpu_energy_type, cpu) == CPU_ET_ECORE)
-		cpumask_set_cpu(cpu,
-				get_force_cpumask(FORCE_CPUMASK_ENERGY));
-	cpumask_set_cpu(cpu,
-			get_force_cpumask(FORCE_CPUMASK_PERFORMANCE));
-
+	set_force_cpumask(cpu);
 	put_cpu();
 
 	/*
@@ -9779,13 +9808,7 @@ int sched_cpu_deactivate(unsigned int cpu)
 	int ret;
 
 	get_cpu();
-
-	if (per_cpu(cpu_energy_type, cpu) == CPU_ET_ECORE)
-		cpumask_clear_cpu(cpu,
-				  get_force_cpumask(FORCE_CPUMASK_ENERGY));
-	cpumask_clear_cpu(cpu,
-			  get_force_cpumask(FORCE_CPUMASK_PERFORMANCE));
-
+	clear_force_cpumask(cpu);
 	put_cpu();
 
 	/*
@@ -9963,6 +9986,10 @@ void __init sched_init_smp(void)
 
 	init_sched_rt_class();
 	init_sched_dl_class();
+
+	get_cpu();
+	set_force_cpumask(smp_processor_id());
+	put_cpu();
 
 	sched_smp_initialized = true;
 }
@@ -10186,12 +10213,16 @@ void __init sched_init(void)
 
 	preempt_dynamic_init();
 
-	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ENERGY),
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ECORE),
 			  GFP_KERNEL);
-	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ENERGY));
-	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_PERFORMANCE),
+	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ECORE));
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_PCORE),
 			  GFP_KERNEL);
-	cpumask_setall(get_force_cpumask(FORCE_CPUMASK_PERFORMANCE));
+	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_PCORE));
+	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ALL),
+			  GFP_KERNEL);
+	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ALL));
+	force_cpumask_index = FORCE_CPUMASK_ALL;
 
 	scheduler_running = 1;
 }

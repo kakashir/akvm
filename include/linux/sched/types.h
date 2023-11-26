@@ -20,4 +20,12 @@ struct task_cputime {
 	unsigned long long		sum_exec_runtime;
 };
 
+enum force_cpumask_type {
+	FORCE_CPUMASK_BEGIN,
+	FORCE_CPUMASK_PCORE,
+	FORCE_CPUMASK_ECORE,
+	FORCE_CPUMASK_ALL,
+	FORCE_CPUMASK_END,
+};
+
 #endif /* _LINUX_SCHED_TYPES_H */
