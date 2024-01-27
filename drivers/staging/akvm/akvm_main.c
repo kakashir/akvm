@@ -115,21 +115,25 @@ static int probe_vmx_basic_info(struct vmx_capability *info)
 
 static struct vm_context vm_context;
 
-static int vmx_on(void *vmx_region)
+static int vmx_on(struct vmx_region *vmx_region)
 {
 	unsigned long pa = __pa(vmx_region);
 
 	cr4_set_bits(X86_CR4_VMXE);
 	asm_volatile_goto("1: vmxon %0\n\t"
+			  "jc %l[failinvalid]\n\t"
 			  _ASM_EXTABLE(1b, %l[fault])
 			  : : "m"(pa)
-			  : : fault);
+			  : : fault, failinvalid);
 	pr_info("VMXON!\n");
 	return 0;
  fault:
-	pr_err("VMXON failed\n");
+	pr_err("VMXON failed:0x%lx\n", (unsigned long)vmx_region);
 	cr4_clear_bits(X86_CR4_VMXE);
 	return -EFAULT;
+ failinvalid:
+	pr_err("VMXON VMfailedInvalid:0x%lx\n", (unsigned long)vmx_region);
+	return -EINVAL;
 }
 
 static void vmx_off(void)
@@ -146,21 +150,98 @@ static void free_vmcs(struct vm_context *vm)
 {
 	/* kfree takes care NULL ptr */
 	kfree(vm->vmx_region);
+	kfree(vm->vmcs);
 }
 
 static int alloc_vmcs(struct vm_context *vm)
 {
-	void *vmx_region;
+	size_t size = vmx_region_size(&vmx_capability);
 
-	vmx_region = kmalloc(vmx_region_size(&vmx_capability),
-			     GFP_KERNEL_ACCOUNT);
-	if (!vmx_region) {
+	vm->vmx_region = kmalloc(size, GFP_KERNEL_ACCOUNT);
+	if (!vm->vmx_region) {
 		pr_err("failed to alloc vmxon region\n");
 		return -ENOMEM;
 	}
 
-	vm->vmx_region = vmx_region;
+	vm->vmcs = kmalloc(size, GFP_KERNEL_ACCOUNT);
+	if (!vm->vmcs) {
+		pr_err("failed to alloc vmcs\n");
+		goto failed_free;
+	}
+
 	return 0;
+
+ failed_free:
+	free_vmcs(vm);
+	return -ENOMEM;
+}
+
+static int vmcs_load(struct vmx_vmcs *vmcs)
+{
+	unsigned long pa = __pa(vmcs);
+
+	asm_volatile_goto("1: vmptrld %0\n\t"
+			  "jz %l[fail]\n\t"
+			  "jc %l[failinvalid]\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  : :"m"(pa)
+			  : "cc"
+			  : fault, fail, failinvalid);
+
+	return 0;
+ fault:
+	pr_err("vmcs_load() fault:0x%lx\n", (unsigned long)vmcs);
+	return -EFAULT;
+ fail:
+	/* TODO: Read instruction error from vmcs */
+	pr_err("vmcs_load() VMfailed:0x%lx\n", (unsigned long)vmcs);
+	return -EINVAL;
+ failinvalid:
+	pr_err("vmcs_load() VMfailedInvalid:0x%lx\n", (unsigned long)vmcs);
+	return -EINVAL;
+}
+
+static void vmcs_clear(struct vmx_vmcs *vmcs)
+{
+	unsigned long pa = __pa(vmcs);
+
+	asm_volatile_goto("1: vmclear %0\n\t"
+			  "jz %l[fail]\n\t"
+			  "jc %l[failinvalid]\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  : :"m"(pa)
+			  : "cc"
+			  : fault, fail, failinvalid);
+	return;
+ fault:
+	pr_err("vmcs_clear() fault:0x%lx\n", (unsigned long)vmcs);
+	return;
+ fail:
+	/* TODO: Read instruction error from vmcs  */
+	pr_err("vmcs_clear() VMfailed:0x%lx\n", (unsigned long)vmcs);
+	return;
+ failinvalid:
+	pr_err("vmcs_clear() VMfailedInvalid:0x%lx\n", (unsigned long)vmcs);
+	return;
+}
+
+static void prepare_vmx_region(struct vmx_region *region,
+			       unsigned int size,
+			       unsigned int revision)
+{
+	memset(region, 0, size);
+	region->revision = revision;
+}
+
+static void prepare_vmcs(struct vmx_vmcs *vmcs, unsigned int size,
+			 unsigned int revision)
+{
+	memset(vmcs, 0, size);
+	vmcs->revision = revision;
+	vmcs->shadow = 0;
+	vmcs->abort = 0;
+	/* SDM3 25.11.3 */
+	vmcs_clear(vmcs);
 }
 
 static int akvm_ioctl_run(struct file *f, unsigned long param)
@@ -187,11 +268,19 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	if (r)
 		return r;
 
+	prepare_vmx_region(vm_context.vmx_region,
+			   vmx_region_size(&vmx_capability),
+			   vmx_vmcs_revision(&vmx_capability));
 	preempt_disable();
-
 	vmx_on(vm_context.vmx_region);
-	vmx_off();
 
+	prepare_vmcs(vm_context.vmcs,
+		     vmx_region_size(&vmx_capability),
+		     vmx_vmcs_revision(&vmx_capability));
+	vmcs_load(vm_context.vmcs);
+	vmcs_clear(vm_context.vmcs);
+
+	vmx_off();
 	preempt_enable();
 
 	free_vmcs(&vm_context);
