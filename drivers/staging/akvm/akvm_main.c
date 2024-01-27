@@ -113,16 +113,92 @@ static int probe_vmx_basic_info(struct vmx_capability *info)
 	return 0;
 }
 
+static struct vm_context vm_context;
 
-static int akvm_ioctl_run(struct file *f, unsigned int ioctl,
-			   unsigned long param)
+static int vmx_on(void *vmx_region)
 {
+	unsigned long pa = __pa(vmx_region);
 
+	cr4_set_bits(X86_CR4_VMXE);
+	asm_volatile_goto("1: vmxon %0\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  : : "m"(pa)
+			  : : fault);
+	pr_info("VMXON!\n");
+	return 0;
+ fault:
+	pr_err("VMXON failed\n");
+	cr4_clear_bits(X86_CR4_VMXE);
+	return -EFAULT;
+}
+
+static void vmx_off(void)
+{
+	asm_volatile_goto("1: vmxoff\n\r"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  : : : : fault);
+ fault:
+	cr4_clear_bits(X86_CR4_VMXE);
+	pr_info("VMXOFF!\n");
+}
+
+static void free_vmcs(struct vm_context *vm)
+{
+	/* kfree takes care NULL ptr */
+	kfree(vm->vmx_region);
+}
+
+static int alloc_vmcs(struct vm_context *vm)
+{
+	void *vmx_region;
+
+	vmx_region = kmalloc(vmx_region_size(&vmx_capability),
+			     GFP_KERNEL_ACCOUNT);
+	if (!vmx_region) {
+		pr_err("failed to alloc vmxon region\n");
+		return -ENOMEM;
+	}
+
+	vm->vmx_region = vmx_region;
 	return 0;
 }
 
-static int akvm_ioctl_get_vmx_info(struct file *f, unsigned ioctl,
-				    unsigned long param)
+static int akvm_ioctl_run(struct file *f, unsigned long param)
+{
+	/*
+	  prepare VMCS and sub struct
+		alloc vmcs and sub struct
+	  PREEMPTION_DISABLE()
+	  VMX ON
+		setup exec/vmetnry/vmexit control fields
+	  load vmcs
+	  prepare host state
+	  prepare guest state
+	  vmlaunch
+
+	  vmcs clear
+	  free vmcs
+	  VMX OFF
+	  PREEMPTION_ENABLE()
+	 */
+	int r;
+
+	r = alloc_vmcs(&vm_context);
+	if (r)
+		return r;
+
+	preempt_disable();
+
+	vmx_on(vm_context.vmx_region);
+	vmx_off();
+
+	preempt_enable();
+
+	free_vmcs(&vm_context);
+	return r;
+}
+
+static int akvm_ioctl_get_vmx_info(struct file *f, unsigned long param)
 {
 	struct akvm_vmx_info vmx_info;
 
@@ -143,10 +219,10 @@ static long akvm_dev_ioctl(struct file *f, unsigned int ioctl,
 
 	switch(ioctl) {
 	case AKVM_RUN:
-		r = akvm_ioctl_run(f, ioctl, param);
+		r = akvm_ioctl_run(f, param);
 		break;
 	case AKVM_GET_VMX_INFO:
-		r = akvm_ioctl_get_vmx_info(f, ioctl, param);
+		r = akvm_ioctl_get_vmx_info(f, param);
 		break;
 	default:
 		r = -EINVAL;
