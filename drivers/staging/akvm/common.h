@@ -1,6 +1,8 @@
 #ifndef _AKVM_COMMON_H_
 #define _AKVM_COMMON_H_
 
+#include <linux/mm.h>
+
 #define __FUNC_TRACE__(text) pr_info("%s() " #text "\n", __func__);
 #define FUNC_ENTRY()  __FUNC_TRACE__("ENTRY")
 #define FUNC_EXIT()  __FUNC_TRACE__("EXIT")
@@ -43,9 +45,9 @@ static inline unsigned int vmx_vmcs_revision(struct vmx_capability *vmx_cap)
 	return vmx_cap->msr_vmx_basic & GENMASK(30, 0);
 }
 
-static inline unsigned int vmx_vmxon_reg_size(struct vmx_capability *vmx_cap)
+static inline unsigned int vmx_region_size(struct vmx_capability *vmx_cap)
 {
-	return (vmx_cap->msr_vmx_basic & GENMASK(44, 32)) >> 32;
+	return PAGE_ALIGN((vmx_cap->msr_vmx_basic & GENMASK(44, 32)) >> 32);
 }
 
 static inline unsigned int  vmx_mem_type(struct vmx_capability *vmx_cap)
@@ -58,5 +60,9 @@ static inline bool vmx_true_vmx_ctl(struct vmx_capability *vmx_cap)
 	return !!(vmx_cap->msr_vmx_basic & BIT_ULL(55));
 }
 
+struct vm_context
+{
+	void *vmx_region;
+};
 
 #endif
