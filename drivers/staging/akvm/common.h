@@ -60,9 +60,23 @@ static inline bool vmx_true_vmx_ctl(struct vmx_capability *vmx_cap)
 	return !!(vmx_cap->msr_vmx_basic & BIT_ULL(55));
 }
 
+struct vmx_region
+{
+	u32 revision:31;
+};
+
+/* VMCS only has valid head definition */
+struct vmx_vmcs
+{
+	u32 revision:31;
+	u32 shadow:1;
+	u32 abort;
+};
+
 struct vm_context
 {
-	void *vmx_region;
+	struct vmx_region  *vmx_region;
+	struct vmx_vmcs *vmcs;
 };
 
 #endif
