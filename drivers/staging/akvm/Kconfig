@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0
+
+config AKVM
+	   tristate "Another toy KVM"
+	   help
+	   Just a toy for play with VMX
+
+	   To compile this driver as a module, choose M here.
