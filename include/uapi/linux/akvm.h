@@ -17,7 +17,9 @@
 #define AKVM_RUN		_IO(AKVMIO,   0x00)
 
 struct akvm_vmx_info {
-	__u64 reserved;
+	__u64 vmx_basic_msr;
+	__u64 vmx_misc_msr;
+	__u64 vmx_ept_vpid_msr;
 };
 #define AKVM_GET_VMX_INFO	_IOR(AKVMIO,  0x01, struct akvm_vmx_info)
 
