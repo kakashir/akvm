@@ -172,6 +172,7 @@ struct vm_context
 typedef unsigned int vmcs_field;
 enum vmcs_filed_id {
 	VMX_INSTRUCTION_ERROR = 0x4400,
+	VMX_EXIT_REASON = 0x4402,
 
 	VMX_PINBASE_CTL = 0x4000,
 	VMX_PROCBASE_CTL = 0x4002,
