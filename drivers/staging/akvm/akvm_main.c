@@ -320,6 +320,8 @@ static int setup_vmcs_control(struct vm_context *vm,
 
 static int setup_vmcs_host_state(struct vm_context *vm)
 {
+	extern void akvm_vmx_vmexit(void);
+
 	union {
 		struct {
 			unsigned int low;
@@ -337,6 +339,10 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	  CS SS DS ES FS GS TR selector
 	  FS GS TR GDTR IDTR Base
 
+	  Question:
+		GDT/IDT's limit will be set to 0xffff by hardware
+		Does this become kind of issue now?
+
 	  IA32_SYSENTER_CS
 	  IA32_SYSENTER_ESP
 	  IA32_SYSENTER_EIP
@@ -350,6 +356,8 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	vmcs_write_natural(VMX_HOST_CR0, read_cr0());
 	vmcs_write_natural(VMX_HOST_CR3, __read_cr3());
 	vmcs_write_natural(VMX_HOST_CR4, __read_cr4());
+
+	vmcs_write_natural(VMX_HOST_RIP, (unsigned long)akvm_vmx_vmexit);
 
 	vmcs_write_16(VMX_HOST_CS, get_cs());
 	vmcs_write_16(VMX_HOST_SS, get_ss());
@@ -410,6 +418,40 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	return 0;
 }
 
+asmlinkage unsigned long
+__akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
+		int launched);
+
+static int vm_enter_exit(struct vm_context *vm)
+{
+	unsigned long r;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	r = __akvm_vcpu_run(&vm->host_state, &vm->guest_state,
+			    vm->launched);
+	local_irq_restore(flags);
+	if (r) {
+		switch(r) {
+		case 1:
+			pr_err("failed vmentry: instruction error:0x%lx\n",
+			       vmcs_read_32(VMX_INSTRUCTION_ERROR));
+			break;
+		case 2:
+			pr_err("failedInvalid vmentry:\n");
+			break;
+		default:
+			pr_err("failed unknown\n");
+			break;
+		}
+
+		return r;
+	}
+
+	vm->launched = true;
+	return r;
+}
+
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
 	/*
@@ -444,10 +486,16 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		     vmx_vmcs_revision(&vmx_capability));
 	vmcs_load(vm_context.vmcs);
 
-	if (setup_vmcs_control(&vm_context, &vmx_capability))
+	r = setup_vmcs_control(&vm_context, &vmx_capability);
+	if (r)
 		goto exit;
-	if (setup_vmcs_host_state(&vm_context))
+	r = setup_vmcs_host_state(&vm_context);
+	if (r)
 		goto exit;
+	r = vm_enter_exit(&vm_context);
+	if (r)
+		goto exit;
+
  exit:
 	vmcs_clear(vm_context.vmcs);
 	vmx_off();
