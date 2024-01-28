@@ -445,6 +445,50 @@ static void setup_ept_root(struct vm_context *vm, struct vmx_capability *cap)
 	pr_info("ept_root: 0x%lx\n", ept_val);
 }
 
+static int  setup_vmcs_guest_state(struct vm_context *vm)
+{
+	/*
+	  CR0 CR3 CR4
+	  DR7
+	  RSP RIP RFLAGS
+	  CS SS DS ES FS GS LDTR TR:
+		selector
+		base
+		segment limit(32 bit) in byte
+		access right(32 bit)
+	  GDTR IDTR
+		base
+		limit
+	  MSR_IA32_DEBUGCTL
+	  IA32_SYSENTER_CS
+	  IA32_SYSENTER_ESP
+	  IA32_SYSENTER_RIP
+	  IA32_PERF_GLOBAL_CTRL
+	  IA32_PAT
+	  IA32_EFER
+	  IA32_BNDCFGS
+	  IA32_RTIT_CTL
+	  IA32_LBR_CTL
+	  IA32_S_CET (not need now)
+	  IA32_INTERRUPT_SSP_TABLE_ADDR (not need now)
+	  IA32_PKRS
+
+	  Non-registers:
+		Activity State
+		Interruptibility state
+		Pending debug exception
+		VMCS link pointer
+		VMX preempt timer value
+		PDPTEs
+		Guest interrupt state
+			RVI
+			SVI
+		PML Index
+	 */
+
+	return 0;
+}
+
 asmlinkage unsigned long
 __akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
 		int launched);
@@ -477,6 +521,15 @@ static int vm_enter_exit(struct vm_context *vm)
 
 	vm->launched = true;
 	return r;
+}
+
+static void handle_vm_exit(struct vm_context *vm)
+{
+	int exit_reason;
+
+	exit_reason = vmcs_read_32(VMX_EXIT_REASON);
+
+	pr_info("exit_reason: 0x%x\n", exit_reason);
 }
 
 static int akvm_ioctl_run(struct file *f, unsigned long param)
@@ -519,12 +572,17 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	r = setup_vmcs_host_state(&vm_context);
 	if (r)
 		goto exit;
-
 	setup_ept_root(&vm_context, &vmx_capability);
+
+	r = setup_vmcs_guest_state(&vm_context);
+	if (r)
+		goto exit;
 
 	r = vm_enter_exit(&vm_context);
 	if (r)
 		goto exit;
+
+	handle_vm_exit(&vm_context);
 
  exit:
 	vmcs_clear(vm_context.vmcs);
