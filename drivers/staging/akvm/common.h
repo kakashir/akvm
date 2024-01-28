@@ -95,6 +95,42 @@ enum vmcs_filed_id {
 	VMX_PROCBASE_2ND_CTL = 0x401e,
 	VMX_ENTRY_CTL = 0x4012,
 	VMX_EXIT_CTL = 0x400c,
+
+	/* host 16bit state area */
+	VMX_HOST_ES = 0xc00,
+	VMX_HOST_CS = 0xc02,
+	VMX_HOST_SS = 0xc04,
+	VMX_HOST_DS = 0xc06,
+	VMX_HOST_FS = 0xc08,
+	VMX_HOST_GS = 0xc0a,
+	VMX_HOST_TR = 0xc0c,
+
+	/* host 32bit state area */
+	VMX_HOST_IA32_SYSENTER_CS = 0x4c00,
+
+	/* host 64bit state area */
+	VMX_HOST_IA32_PAT = 0x2c00,
+	VMX_HOST_IA32_PAT_HIGH = 0x2c01,
+	VMX_HOST_IA32_EFER = 0x2c02,
+	VMX_HOST_IA32_EFER_HIGH = 0x2c03,
+	VMX_HOST_IA32_PERF_GLOBAL_CTL = 0x2c04,
+	VMX_HOST_IA32_PERF_GLOBAL_CTL_HIGH = 0x2c05,
+	VMX_HOST_IA32_PKRS = 0x2c06,
+	VMX_HOST_IA32_PKRS_HIGH = 0x2c07,
+
+	/* host natural width state area */
+	VMX_HOST_CR0 = 0x6c00,
+	VMX_HOST_CR3 = 0x6c02,
+	VMX_HOST_CR4 = 0x6c04,
+	VMX_HOST_FS_BASE = 0x6c06,
+	VMX_HOST_GS_BASE = 0x6c08,
+	VMX_HOST_TR_BASE = 0x6c0a,
+	VMX_HOST_GDT_BASE = 0x6c0c,
+	VMX_HOST_IDT_BASE = 0x6c0e,
+	VMX_HOST_IA32_SYSENTER_ESP = 0x6c10,
+	VMX_HOST_IA32_SYSENTER_EIP = 0x6c12,
+	VMX_HOST_RSP = 0x6c14,
+	VMX_HOST_RIP = 0x6c16,
 };
 
 #define VMX_FIELD_ACCESS_TYPE_MASK BIT(0)
@@ -243,4 +279,95 @@ VMCS_WRITE(natural)
 	 VMX_EXIT_LOAD_EFER |			\
 	 VMX_EXIT_LOAD_PKRS |			\
 	 VMX_EXIT_SAVE_PERF_GLOBAL_CTL)
+
+/* x86 accessor */
+static inline u16 get_cs(void)
+{
+	unsigned int val;
+
+	asm volatile("mov %%cs, %0":"=r"(val));
+	return val;
+}
+
+static inline u16 get_ss(void)
+{
+	unsigned int val;
+
+	asm volatile("mov %%ss, %0":"=r"(val));
+	return val;
+}
+
+static inline u16 get_ds(void)
+{
+	unsigned int val;
+
+	asm volatile("mov %%ds, %0":"=r"(val));
+	return val;
+}
+
+static inline u16 get_es(void)
+{
+	unsigned int val;
+
+	asm volatile("mov %%es, %0":"=r"(val));
+	return val;
+}
+
+static inline u16 get_fs(void)
+{
+	unsigned int val;
+
+	asm volatile("mov %%fs, %0":"=r"(val));
+	return val;
+}
+
+static inline u16 get_gs(void)
+{
+	unsigned int val;
+
+	asm volatile("mov %%gs, %0":"=r"(val));
+	return val;
+}
+
+static inline u16 get_tr(void)
+{
+	unsigned int val;
+
+	asm volatile("str %0":"=r"(val));
+	return val;
+}
+
+static inline unsigned long get_fsbase(void)
+{
+	unsigned long val;
+
+	asm volatile("rdfsbase %0":"=r"(val));
+	return val;
+}
+
+static inline unsigned long get_gsbase(void)
+{
+	unsigned long val;
+
+	asm volatile("rdgsbase %0":"=r"(val));
+	return val;
+}
+
+struct gdt_idt_table_desc {
+	unsigned short int size;
+	unsigned long base;
+} __attribute__((packed));
+
+static inline void get_gdt_table_desc(struct gdt_idt_table_desc *desc)
+{
+	asm volatile("sgdt %0":"=m"(*desc));
+}
+
+static inline void get_idt_table_desc(struct gdt_idt_table_desc *desc)
+{
+	asm volatile("sidt %0":"=m"(*desc));
+}
+
+#define MSR_IA32_PKRS 0x6e1
+
 #endif

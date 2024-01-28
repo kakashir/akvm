@@ -7,6 +7,7 @@
 
 #include <asm/msr-index.h>
 #include <asm/vmx.h>
+#include <asm/cpu_entry_area.h>
 
 #include "common.h"
 
@@ -317,6 +318,98 @@ static int setup_vmcs_control(struct vm_context *vm,
 	return 0;
 }
 
+static int setup_vmcs_host_state(struct vm_context *vm)
+{
+	union {
+		struct {
+			unsigned int low;
+			unsigned int high;
+		};
+		unsigned long val;
+	} msr_val;
+
+	struct gdt_idt_table_desc gdt_idt_desc;
+	int cpu = smp_processor_id();
+
+	/*
+	  CR0 CR3 CR4
+	  RSP RIP are handled before vmlaunch/vmresume
+	  CS SS DS ES FS GS TR selector
+	  FS GS TR GDTR IDTR Base
+
+	  IA32_SYSENTER_CS
+	  IA32_SYSENTER_ESP
+	  IA32_SYSENTER_EIP
+	  IA32_PERF_GLOBAL_CTRL
+	  IA32_PAT
+	  IA32_EFER
+	  IA32_PKRS
+	  IA32_S_CET (not need now)
+	  IA32_INETRRUPT_SSP_TABLE_ADDR (not need now)
+	 */
+	vmcs_write_natural(VMX_HOST_CR0, read_cr0());
+	vmcs_write_natural(VMX_HOST_CR3, __read_cr3());
+	vmcs_write_natural(VMX_HOST_CR4, __read_cr4());
+
+	vmcs_write_16(VMX_HOST_CS, get_cs());
+	vmcs_write_16(VMX_HOST_SS, get_ss());
+	vmcs_write_16(VMX_HOST_DS, get_ds());
+	vmcs_write_16(VMX_HOST_ES, get_es());
+	vmcs_write_16(VMX_HOST_FS, get_fs());
+	vmcs_write_16(VMX_HOST_GS, get_gs());
+	vmcs_write_16(VMX_HOST_TR, get_tr());
+
+	vmcs_write_natural(VMX_HOST_FS_BASE, get_fsbase());
+	pr_info("fsbase: 0x%lx\n", get_fsbase());
+
+	vmcs_write_natural(VMX_HOST_GS_BASE, get_gsbase());
+	pr_info("gsbase: 0x%lx\n", get_gsbase());
+
+	vmcs_write_natural(VMX_HOST_TR_BASE,
+			   (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
+	pr_info("tr_base: 0x%lx\n", (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
+
+	get_gdt_table_desc(&gdt_idt_desc);
+	vmcs_write_natural(VMX_HOST_GDT_BASE, gdt_idt_desc.base);
+	pr_info("gdt: base:0x%lx size:%d\n",
+		gdt_idt_desc.base, (int)gdt_idt_desc.size);
+
+	get_idt_table_desc(&gdt_idt_desc);
+	vmcs_write_natural(VMX_HOST_IDT_BASE, gdt_idt_desc.base);
+	pr_info("idt: base:0x%lx size:%d\n",
+		gdt_idt_desc.base, (int)gdt_idt_desc.size);
+
+	rdmsr(MSR_IA32_SYSENTER_CS, msr_val.low, msr_val.high);
+	vmcs_write_32(VMX_HOST_IA32_SYSENTER_CS, msr_val.low);
+	pr_info("sysenter_cs: 0x%x\n", msr_val.low);
+
+	rdmsr(MSR_IA32_SYSENTER_ESP, msr_val.low, msr_val.high);
+	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_ESP, msr_val.val);
+	pr_info("sysenter_esp: 0x%lx\n", msr_val.val);
+
+	rdmsr(MSR_IA32_SYSENTER_EIP, msr_val.low, msr_val.high);
+	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_EIP, msr_val.val);
+	pr_info("sysenter_eip: 0x%lx\n", msr_val.val);
+
+	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, msr_val.val);
+	vmcs_write_64(VMX_HOST_IA32_PERF_GLOBAL_CTL, msr_val.val);
+	pr_info("perf_global_ctl: 0x%lx\n", msr_val.val);
+
+	rdmsrl(MSR_IA32_CR_PAT, msr_val.val);
+	vmcs_write_64(VMX_HOST_IA32_PAT, msr_val.val);
+	pr_info("ia32_pat: 0x%lx\n", msr_val.val);
+
+	rdmsrl(MSR_EFER, msr_val.val);
+	vmcs_write_64(VMX_HOST_IA32_EFER, msr_val.val);
+	pr_info("ia32_efer: 0x%lx\n", msr_val.val);
+
+	rdmsrl(MSR_IA32_PKRS, msr_val.val);
+	vmcs_write_64(VMX_HOST_IA32_PKRS, msr_val.val);
+	pr_info("ia32_pkrs: 0x%lx\n", msr_val.val);
+
+	return 0;
+}
+
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
 	/*
@@ -353,7 +446,8 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 
 	if (setup_vmcs_control(&vm_context, &vmx_capability))
 		goto exit;
-
+	if (setup_vmcs_host_state(&vm_context))
+		goto exit;
  exit:
 	vmcs_clear(vm_context.vmcs);
 	vmx_off();
