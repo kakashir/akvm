@@ -25,7 +25,7 @@ static void vmx_get_ctl_msr_fix_bit(int msr, u32 *ctl_fix_0, u32 *ctl_fix_1)
 	*ctl_fix_1 = low;
 }
 
-static void vmx_get_ctl_msr_fix_bit2(int msr, u32 *ctl_fix_0, u32 *ctl_fix_1)
+static void vmx_get_ctl_msr_fix_bit2(int msr, u64 *ctl_fix_0, u64 *ctl_fix_1)
 {
 	u64 val;
 
@@ -98,7 +98,7 @@ static int probe_vmx_basic_info(struct vmx_capability *info)
 	pr_info("proc 2nd control: fixed0: 0x%x fixed1:0x%x\n",
 		info->proc_based_2nd_exec_fixed0,
 		info->proc_based_2nd_exec_fixed1);
-	pr_info("proc 3rd control: fixed0: 0x%x fixed1:0x%x\n",
+	pr_info("proc 3rd control: fixed0: 0x%llx fixed1:0x%llx\n",
 		info->proc_based_3rd_exec_fixed0,
 		info->proc_based_3rd_exec_fixed1);
 	pr_info("vmentry control: fixed0: 0x%x fixed1: 0x%x\n",
