@@ -79,4 +79,105 @@ struct vm_context
 	struct vmx_vmcs *vmcs;
 };
 
+/* VMX feilds */
+typedef unsigned int vmcs_field;
+enum vmcs_filed_id {
+	VMX_INSTRUCTION_ERROR = 0x4400
+};
+
+#define VMX_FIELD_ACCESS_TYPE_MASK BIT(0)
+#define VMX_FIELD_ACCESS_TYPE_FULL 0
+#define VMX_FIELD_ACCESS_TYPE_HIGH 1
+#define VMX_FIELD_WIDTH_MASK GENMASK(14, 13)
+#define VMX_FIELD_WIDTH_16 (0 << 13)
+#define VMX_FIELD_WIDTH_64 (1 << 13)
+#define VMX_FIELD_WIDTH_32 (2 << 13)
+#define VMX_FIELD_WIDTH_NATURAL (3 << 13)
+
+#define VMCS_FIELD_WIDTH_CHECKER(size, suffix)	       \
+static inline bool vmcs_field_width_##suffix(vmcs_field field) \
+{									\
+	return (field & VMX_FIELD_WIDTH_MASK) == VMX_FIELD_WIDTH_##size; \
+}
+VMCS_FIELD_WIDTH_CHECKER(16, 16)
+VMCS_FIELD_WIDTH_CHECKER(32, 32)
+VMCS_FIELD_WIDTH_CHECKER(64, 64)
+VMCS_FIELD_WIDTH_CHECKER(NATURAL, natural)
+
+#define VMCS_FIELD_ACCESS_TYPE_CHECKER(type, suffix) \
+static inline bool vmcs_field_access_type_##suffix(vmcs_field field) \
+{ \
+	return (field & VMX_FIELD_ACCESS_TYPE_MASK) == VMX_FIELD_ACCESS_TYPE_##type; \
+}
+VMCS_FIELD_ACCESS_TYPE_CHECKER(FULL, full)
+VMCS_FIELD_ACCESS_TYPE_CHECKER(HIGH, high)
+
+static inline unsigned long __vmcs_read(vmcs_field field)
+{
+	unsigned long val;
+
+	asm_volatile_goto("mov %1, %%eax\n\t"
+			  "1: vmread %%rax, %0\n\t"
+			  "jz %l[fail]\n\t"
+			  "jc %l[failinvalid]\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  :"=m"(val)
+			  :"q"(field)
+			  : : fault, fail, failinvalid);
+	return val;
+ fault:
+	pr_err("%s() fault: field:0x%x\n", __func__, field);
+	return -1;
+ fail:
+	pr_err("%s() VMfailed: field:0x%x\n", __func__, field);
+	return -1;
+ failinvalid:
+	pr_err("%s() VMfailedInvalid: field:0x%x\n", __func__, field);
+	return -1;
+}
+
+#define VMCS_READ(size) \
+static inline unsigned long vmcs_read_##size(vmcs_field field) \
+{ \
+	WARN_ON(!vmcs_field_width_##size(field)); \
+	return __vmcs_read(field); \
+}
+VMCS_READ(16)
+VMCS_READ(32)
+VMCS_READ(64)
+VMCS_READ(natural)
+
+static inline void __vmcs_write(vmcs_field field, unsigned long val)
+{
+	asm_volatile_goto("mov %1, %%eax\n\t"
+			  "1: vmwrite %0, %%rax\n\t"
+			  "jz %l[fail]\n\t"
+			  "jc %l[failinvalid]\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  : : "m"(val), "q"(field)
+			  : "memory"
+			  : fault, fail, failinvalid);
+	return;
+ fault:
+	pr_err("%s() fault: field:0x%x\n", __func__, field);
+	return;
+ fail:
+	pr_err("%s() VMfailed: field:0x%x\n", __func__, field);
+	return;
+ failinvalid:
+	pr_err("%s() VMfailedInvalid: field:0x%x\n", __func__, field);
+	return;
+}
+
+#define VMCS_WRITE(size) \
+static inline void vmcs_write_##size(vmcs_field field, unsigned long val)  \
+{									\
+	WARN_ON(!vmcs_field_width_##size(field));	   \
+	return __vmcs_write(field, val);		   \
+}
+VMCS_WRITE(16)
+VMCS_WRITE(32)
+VMCS_WRITE(64)
+VMCS_WRITE(natural)
+
 #endif
