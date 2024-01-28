@@ -47,7 +47,14 @@ static void vmx_get_cr_fix_bit(int msr_fixed0, int msr_fixed1,
 	*cr_fixed0 = ~val;
 }
 
+#define vmx_check_ctl_bit(val, expect_val) \
+	(((val) & (expect_val)) == (expect_val))
 
+#define  vmx_adjust_ctl_bit(val, fixed0, fixed1) \
+{ \
+	(val) &= ~(fixed0);			\
+	(val) |= (fixed1);			\
+}
 
 static int probe_vmx_basic_info(struct vmx_capability *info)
 {
@@ -248,6 +255,68 @@ static void prepare_vmcs(struct vmx_vmcs *vmcs, unsigned int size,
 	vmcs_clear(vmcs);
 }
 
+static int setup_vmcs_control(struct vm_context *vm,
+			       struct vmx_capability *cap)
+{
+	unsigned int vmx_pinbase = VMX_EXEC_CTL_MIN;
+	unsigned int vmx_procbase = VMX_PROCBASE_CTL_MIN;
+	unsigned int vmx_procbase_2nd = VMX_PROCBASE_2ND_CTL_MIN;
+	unsigned int vmx_entry = VMX_ENTRY_CTL_MIN;
+	unsigned int vmx_exit  = VMX_EXIT_CTL_MIN;
+
+	vmx_adjust_ctl_bit(vmx_pinbase,
+			   cap->pin_based_exec_fixed_0,
+			   cap->pin_based_exec_fixed_1);
+	if (!vmx_check_ctl_bit(vmx_pinbase, VMX_EXEC_CTL_MIN)) {
+		pr_err("unsupported vmx pinbase:0x%x\n", vmx_pinbase);
+		return -EINVAL;
+	}
+
+	vmx_adjust_ctl_bit(vmx_procbase,
+			   cap->proc_based_exec_fixed0,
+			   cap->proc_based_exec_fixed1);
+	if (!vmx_check_ctl_bit(vmx_procbase, VMX_PROCBASE_CTL_MIN)) {
+		pr_err("unsupported vmx procbase:0x%x\n", vmx_procbase);
+		return -EINVAL;
+	}
+
+	vmx_adjust_ctl_bit(vmx_procbase_2nd,
+			   cap->proc_based_2nd_exec_fixed0,
+			   cap->proc_based_2nd_exec_fixed1);
+	if (!vmx_check_ctl_bit(vmx_procbase_2nd, VMX_PROCBASE_2ND_CTL_MIN)) {
+		pr_err("unsupported vmx procbase 2nd:0x%x\n", vmx_procbase_2nd);
+		return -EINVAL;
+	}
+
+	vmx_adjust_ctl_bit(vmx_entry,
+			   cap->vmentry_fixed0, cap->vmentry_fixed1);
+	if (!vmx_check_ctl_bit(vmx_entry, VMX_ENTRY_CTL_MIN)) {
+		pr_err("unsupported vmx entry:0x%x\n", vmx_entry);
+		return -EINVAL;
+	}
+
+	vmx_adjust_ctl_bit(vmx_exit,
+			   cap->vmexit_fixed0, cap->vmexit_fixed1);
+	if (!vmx_check_ctl_bit(vmx_exit, VMX_EXIT_CTL_MIN)) {
+		pr_err("unsupported vmx exit:0x%x\n", vmx_exit);
+		return -EINVAL;
+	}
+
+	vmcs_write_32(VMX_PINBASE_CTL, vmx_pinbase);
+	vmcs_write_32(VMX_PROCBASE_CTL, vmx_procbase);
+	vmcs_write_32(VMX_PROCBASE_2ND_CTL, vmx_procbase_2nd);
+	vmcs_write_32(VMX_ENTRY_CTL, vmx_entry);
+	vmcs_write_32(VMX_EXIT_CTL, vmx_exit);
+
+	vm->pinbase_ctl = vmx_pinbase;
+	vm->procbase_ctl = vmx_procbase;
+	vm->procbase_2nd_ctl = vmx_procbase_2nd;
+	vm->entry_ctl = vmx_entry;
+	vm->exit_ctl = vmx_exit;
+
+	return 0;
+}
+
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
 	/*
@@ -282,6 +351,10 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		     vmx_vmcs_revision(&vmx_capability));
 	vmcs_load(vm_context.vmcs);
 
+	if (setup_vmcs_control(&vm_context, &vmx_capability))
+		goto exit;
+
+ exit:
 	vmcs_clear(vm_context.vmcs);
 	vmx_off();
 	preempt_enable();
