@@ -193,8 +193,9 @@ static int vmcs_load(struct vmx_vmcs *vmcs)
 	pr_err("vmcs_load() fault:0x%lx\n", (unsigned long)vmcs);
 	return -EFAULT;
  fail:
-	/* TODO: Read instruction error from vmcs */
-	pr_err("vmcs_load() VMfailed:0x%lx\n", (unsigned long)vmcs);
+	pr_err("vmcs_load() VMfailed:0x%lx instruction error:0x%ld\n",
+	       (unsigned long)vmcs,
+	       vmcs_read_32(VMX_INSTRUCTION_ERROR));
 	return -EINVAL;
  failinvalid:
 	pr_err("vmcs_load() VMfailedInvalid:0x%lx\n", (unsigned long)vmcs);
@@ -218,12 +219,15 @@ static void vmcs_clear(struct vmx_vmcs *vmcs)
 	return;
  fail:
 	/* TODO: Read instruction error from vmcs  */
-	pr_err("vmcs_clear() VMfailed:0x%lx\n", (unsigned long)vmcs);
+	pr_err("vmcs_clear() VMfailed:0x%lx instruction error:%ld\n",
+	       (unsigned long)vmcs,
+	       vmcs_read_32(VMX_INSTRUCTION_ERROR));
 	return;
  failinvalid:
 	pr_err("vmcs_clear() VMfailedInvalid:0x%lx\n", (unsigned long)vmcs);
 	return;
 }
+
 
 static void prepare_vmx_region(struct vmx_region *region,
 			       unsigned int size,
@@ -273,13 +277,12 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 			   vmx_vmcs_revision(&vmx_capability));
 	preempt_disable();
 	vmx_on(vm_context.vmx_region);
-
 	prepare_vmcs(vm_context.vmcs,
 		     vmx_region_size(&vmx_capability),
 		     vmx_vmcs_revision(&vmx_capability));
 	vmcs_load(vm_context.vmcs);
-	vmcs_clear(vm_context.vmcs);
 
+	vmcs_clear(vm_context.vmcs);
 	vmx_off();
 	preempt_enable();
 
