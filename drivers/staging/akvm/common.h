@@ -73,6 +73,57 @@ struct vmx_vmcs
 	u32 abort;
 };
 
+enum gpr_context_id
+{
+	GPR_RAX = 0,
+	GPR_RBX,
+	GPR_RCX,
+	GPR_RDX,
+	GPR_RDI,
+	GPR_RSI,
+	GPR_RBP,
+	GPR_RSP,
+	GPR_R8,
+	GPR_R9,
+	GPR_R10,
+	GPR_R11,
+	GPR_R12,
+	GPR_R13,
+	GPR_R14,
+	GPR_R15,
+};
+
+struct gpr_context
+{
+	unsigned long rax;
+	unsigned long rbx;
+	unsigned long rcx;
+	unsigned long rdx;
+	unsigned long rdi;
+	unsigned long rsi;
+	unsigned long rbp;
+	unsigned long rsp;
+	unsigned long r8;
+	unsigned long r9;
+	unsigned long r10;
+	unsigned long r11;
+	unsigned long r12;
+	unsigned long r13;
+	unsigned long r14;
+	unsigned long r15;
+} __attribute__((packed));
+
+struct vm_host_state
+{
+	struct gpr_context gprs;
+	unsigned long rflags;
+} __attribute__((packed));
+
+struct vm_guest_state
+{
+	struct gpr_context gprs;
+} __attribute__((packed));
+
 struct vm_context
 {
 	struct vmx_region  *vmx_region;
@@ -83,6 +134,10 @@ struct vm_context
 	unsigned int procbase_2nd_ctl;
 	unsigned int entry_ctl;
 	unsigned int exit_ctl;
+	int launched;
+
+	struct vm_host_state host_state;
+	struct vm_guest_state guest_state;
 };
 
 /* VMX feilds */
