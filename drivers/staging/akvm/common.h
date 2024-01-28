@@ -60,6 +60,33 @@ static inline bool vmx_true_vmx_ctl(struct vmx_capability *vmx_cap)
 	return !!(vmx_cap->msr_vmx_basic & BIT_ULL(55));
 }
 
+static inline int vmx_ept_level(struct vmx_capability *vmx_cap)
+{
+	if (vmx_cap->msr_ept_vpid & BIT(6))
+		return 4;
+
+	if (vmx_cap->msr_ept_vpid & BIT(7))
+		return 5;
+
+	WARN_ON(1);
+	return 4;
+}
+
+static inline bool vmx_ept_mem_type_wb(struct vmx_capability *vmx_cap)
+{
+	return !!(vmx_cap->msr_ept_vpid & BIT(14));
+}
+
+static inline bool vmx_ept_mem_type_uc(struct vmx_capability *vmx_cap)
+{
+	return !!(vmx_cap->msr_ept_vpid & BIT(8));
+}
+
+static inline bool vmx_ept_ad_bit(struct vmx_capability *vmx_cap)
+{
+	return !!(vmx_cap->msr_ept_vpid & BIT(21));
+}
+
 struct vmx_region
 {
 	u32 revision:31;
@@ -128,6 +155,7 @@ struct vm_context
 {
 	struct vmx_region  *vmx_region;
 	struct vmx_vmcs *vmcs;
+	unsigned long ept_root;
 
 	unsigned int pinbase_ctl;
 	unsigned int procbase_ctl;
@@ -148,6 +176,7 @@ enum vmcs_filed_id {
 	VMX_PINBASE_CTL = 0x4000,
 	VMX_PROCBASE_CTL = 0x4002,
 	VMX_PROCBASE_2ND_CTL = 0x401e,
+	VMX_EPTP_POINTER = 0x201a,
 	VMX_ENTRY_CTL = 0x4012,
 	VMX_EXIT_CTL = 0x400c,
 
@@ -334,6 +363,11 @@ VMCS_WRITE(natural)
 	 VMX_EXIT_LOAD_EFER |			\
 	 VMX_EXIT_LOAD_PKRS |			\
 	 VMX_EXIT_SAVE_PERF_GLOBAL_CTL)
+
+#define VMX_EPT_MEM_TYPE_UC 0
+#define VMX_EPT_MEM_TYPE_WB 6
+#define VMX_EPT_ENABLE_AD_BITS BIT(6)
+#define VMX_EPT_WALK_LENGTH_SHIFT 3
 
 /* x86 accessor */
 static inline u16 get_cs(void)
