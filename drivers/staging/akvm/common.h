@@ -24,8 +24,8 @@ struct vmx_capability
 	u32 proc_based_exec_fixed1;
 	u32 proc_based_2nd_exec_fixed0;
 	u32 proc_based_2nd_exec_fixed1;
-	u32 proc_based_3rd_exec_fixed0;
-	u32 proc_based_3rd_exec_fixed1;
+	u64 proc_based_3rd_exec_fixed0;
+	u64 proc_based_3rd_exec_fixed1;
 
 	u32 vmentry_fixed0;
 	u32 vmentry_fixed1;
