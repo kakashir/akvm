@@ -159,6 +159,7 @@ static void free_vmcs(struct vm_context *vm)
 	/* kfree takes care NULL ptr */
 	kfree(vm->vmx_region);
 	kfree(vm->vmcs);
+	free_page(vm->ept_root);
 }
 
 static int alloc_vmcs(struct vm_context *vm)
@@ -177,6 +178,11 @@ static int alloc_vmcs(struct vm_context *vm)
 		goto failed_free;
 	}
 
+	vm->ept_root = __get_free_page(GFP_KERNEL);
+	if (!vm->ept_root) {
+		pr_err("failed to alloc ept root\n");
+		goto failed_free;
+	}
 	return 0;
 
  failed_free:
@@ -418,6 +424,27 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	return 0;
 }
 
+static void setup_ept_root(struct vm_context *vm, struct vmx_capability *cap)
+{
+	unsigned long ept_val;
+
+	if (!vm->ept_root) {
+		pr_info("ept_root: skip due to no ept_root page\n");
+		return;
+	}
+
+	WARN_ON(!vmx_ept_mem_type_wb(cap));
+
+	ept_val = __pa(vm->ept_root) & PAGE_MASK;
+	ept_val |= VMX_EPT_MEM_TYPE_WB;
+	ept_val |= (vmx_ept_level(cap) - 1) << VMX_EPT_WALK_LENGTH_SHIFT;
+	if (vmx_ept_ad_bit(cap))
+		ept_val |= VMX_EPT_ENABLE_AD_BITS;
+
+	vmcs_write_64(VMX_EPTP_POINTER, ept_val);
+	pr_info("ept_root: 0x%lx\n", ept_val);
+}
+
 asmlinkage unsigned long
 __akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
 		int launched);
@@ -492,6 +519,9 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	r = setup_vmcs_host_state(&vm_context);
 	if (r)
 		goto exit;
+
+	setup_ept_root(&vm_context, &vmx_capability);
+
 	r = vm_enter_exit(&vm_context);
 	if (r)
 		goto exit;
