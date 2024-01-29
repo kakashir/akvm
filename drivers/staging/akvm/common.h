@@ -221,6 +221,93 @@ enum vmcs_filed_id {
 	VMX_HOST_IA32_SYSENTER_EIP = 0x6c12,
 	VMX_HOST_RSP = 0x6c14,
 	VMX_HOST_RIP = 0x6c16,
+
+	/* guest 16bit state */
+	VMX_GUEST_ES = 0x800,
+	VMX_GUEST_CS = 0x802,
+	VMX_GUEST_SS = 0x804,
+	VMX_GUEST_DS = 0x806,
+	VMX_GUEST_FS = 0x808,
+	VMX_GUEST_GS = 0x80a,
+	VMX_GUEST_LDTR = 0x80c,
+	VMX_GUEST_TR = 0x80e,
+	VMX_GUEST_INTR_STATUS = 0x810,
+	VMX_GUEST_PML_INDEX = 0x812,
+
+	/* guest 32bit state */
+	VMX_GUEST_ES_LIMIT = 0x4800,
+	VMX_GUEST_CS_LIMIT = 0x4802,
+	VMX_GUEST_SS_LIMIT = 0x4804,
+	VMX_GUEST_DS_LIMIT = 0x4806,
+	VMX_GUEST_FS_LIMIT = 0x4808,
+	VMX_GUEST_GS_LIMIT = 0x480a,
+	VMX_GUEST_LDTR_LIMIT = 0x480c,
+	VMX_GUEST_TR_LIMIT = 0x480e,
+	VMX_GUEST_GDTR_LIMIT = 0x4810,
+	VMX_GUEST_IDTR_LIMIT = 0x4812,
+	VMX_GUEST_ES_AR = 0x4814,
+	VMX_GUEST_CS_AR = 0x4816,
+	VMX_GUEST_SS_AR = 0x4818,
+	VMX_GUEST_DS_AR = 0x481a,
+	VMX_GUEST_FS_AR = 0x481c,
+	VMX_GUEST_GS_AR = 0x481e,
+	VMX_GUEST_LDTR_AR = 0x4820,
+	VMX_GUEST_TR_AR = 0x4822,
+	VMX_GUEST_INTR_BLOCK = 0x4824,
+	VMX_GUEST_ACTIVITY = 0x4826,
+	VMX_GUEST_SMBASE = 0x4828,
+	VMX_GUEST_IA32_SYSENTER_CS = 0x482a,
+	VMX_GUEST_PREEMPT_TIMER = 0x482e,
+
+	/* guest 64bit state */
+	VMX_GUEST_VMCS_LINK_POINTER = 0x2800,
+	VMX_GUEST_VMCS_LINK_POINTER_HIGH = 0x2801,
+	VMX_GUEST_IA32_DEBUGCTL = 0x2802,
+	VMX_GUEST_IA32_DEBUGCTL_HIGH = 0x2803,
+	VMX_GUEST_IA32_PAT = 0x2804,
+	VMX_GUEST_IA32_PAT_HIGH = 0x2805,
+	VMX_GUEST_IA32_EFER = 0x2806,
+	VMX_GUEST_IA32_EFER_HIGH = 0x2807,
+	VMX_GUEST_IA32_PERF_GLOBAL_CTL = 0x2808,
+	VMX_GUEST_IA32_PERF_GLOBAL_CTL_HIGH = 0x2809,
+	VMX_GUEST_PDPTE0 = 0x280a,
+	VMX_GUEST_PDPTE0_HIGH = 0x280b,
+	VMX_GUEST_PDPTE1 = 0x280c,
+	VMX_GUEST_PDPTE1_HIGH = 0x280d,
+	VMX_GUEST_PDPTE2 = 0x280e,
+	VMX_GUEST_PDPTE2_HIGH = 0x280f,
+	VMX_GUEST_PDPTE3 = 0x2810,
+	VMX_GUEST_PDPTE3_HIGH = 0x2811,
+	VMX_GUEST_IA32_BNDCFGS = 0x2812,
+	VMX_GUEST_IA32_BNDCFGS_HIGH = 0x2813,
+	VMX_GUEST_IA32_RTIT_CTL = 0x2814,
+	VMX_GUEST_IA32_RTIT_CTL_HIGH = 0x2815,
+	VMX_GUEST_IA32_LBR_CTL = 0x2816,
+	VMX_GUEST_IA32_LBR_CTL_HIGH = 0x2817,
+	VMX_GUEST_IA32_PKRS = 0x2818,
+	VMX_GUEST_IA32_PKRS_HIGH = 0x2819,
+
+	/* guest natural state */
+	VMX_GUEST_CR0 = 0x6800,
+	VMX_GUEST_CR3 = 0x6802,
+	VMX_GUEST_CR4 = 0x6804,
+	VMX_GUEST_ES_BASE = 0x6806,
+	VMX_GUEST_CS_BASE = 0x6808,
+	VMX_GUEST_SS_BASE = 0x680a,
+	VMX_GUEST_DS_BASE = 0x680c,
+	VMX_GUEST_FS_BASE = 0x680e,
+	VMX_GUEST_GS_BASE = 0x6810,
+	VMX_GUEST_LDTR_BASE = 0x6812,
+	VMX_GUEST_TR_BASE = 0x6814,
+	VMX_GUEST_GDTR_BASE = 0x6816,
+	VMX_GUEST_IDTR_BASE = 0x6818,
+	VMX_GUEST_DR7 = 0x681a,
+	VMX_GUEST_RSP = 0x681c,
+	VMX_GUEST_RIP = 0x681e,
+	VMX_GUEST_RFLAGS = 0x6820,
+	VMX_GUEST_PENDING_DB_EXCEPT = 0x6822,
+	VMX_GUEST_IA32_SYSENTER_ESP = 0x6824,
+	VMX_GUEST_IA32_SYSENTER_EIP = 0x6826,
 };
 
 #define VMX_FIELD_ACCESS_TYPE_MASK BIT(0)
@@ -375,6 +462,54 @@ VMCS_WRITE(natural)
 #define VMX_EPT_ENABLE_AD_BITS BIT(6)
 #define VMX_EPT_WALK_LENGTH_SHIFT 3
 
+union vmx_segment_selector
+{
+	struct {
+		unsigned int rpl:2;
+		unsigned int ti:1;
+		unsigned int sel:13;
+	} __attribute__((packed));
+	unsigned short int val;
+};
+
+union vmx_segment_ar {
+	struct {
+		unsigned int desc_type:4;
+		unsigned int s:1;
+		unsigned int dpl:2;
+		unsigned int p:1;
+		unsigned int reserved:4;
+		unsigned int avl:1;
+		unsigned int reserved_l:1;
+		unsigned int db:1;
+		unsigned int g:1;
+		unsigned int unusable:1;
+		unsigned int reserved_h:15;
+	} __attribute__((packed));
+	unsigned int val;
+};
+
+enum vmx_cpu_activity_state {
+	VMX_CPU_ACTIVE = 0,
+	VMX_CPU_HLT,
+	VMX_CPU_SHUTDOWN,
+	VMX_CPU_WAIT_SIPI,
+};
+
+enum vmx_cpu_interrupt_block_state {
+	VMX_INTR_BLOCK_STI = BIT(0),
+	VMX_INTR_BLOCK_MOV_SS = BIT(1),
+	VMX_SMI_BLOCK = BIT(2),
+	VMX_NMI_BLOCK = BIT(3),
+};
+
+struct vmx_segment {
+	union vmx_segment_ar ar;
+	union vmx_segment_selector selector;
+	unsigned int base;
+	unsigned int limit;
+};
+
 /* x86 accessor */
 static inline u16 get_cs(void)
 {
@@ -464,5 +599,20 @@ static inline void get_idt_table_desc(struct gdt_idt_table_desc *desc)
 }
 
 #define MSR_IA32_PKRS 0x6e1
+
+#define X86_FLAGS_RESERVED_1 BIT(1)
+#define X86_DR7_RESERVED_1 BIT(10)
+#define X86_SEGMENT_TYPE_CODE_RXA 11
+#define X86_SEGMENT_TYPE_DATA_RWA 3
+#define X86_SEGMENT_TYPE_LDT 2
+#define X86_SEGMENT_TYPE_TR_TSS_16_BUSY 3
+
+#define X86_PAT_UC 0
+#define X86_PAT_WC 1
+#define X86_PAT_WT 4
+#define X86_PAT_WP 5
+#define X86_PAT_WB 6
+#define X86_PAT_UC_MINUS 7
+#define X86_PAT_DEF_VAL 0x0007040600070406ULL
 
 #endif
