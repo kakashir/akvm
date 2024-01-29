@@ -489,6 +489,26 @@ static int  setup_vmcs_guest_state(struct vm_context *vm)
 	return 0;
 }
 
+static void save_host_state(struct vm_host_state *state)
+{
+	state->cr2 = read_cr2();
+}
+
+static void load_host_state(struct vm_host_state *state)
+{
+	write_cr2(state->cr2);
+}
+
+static void save_guest_state(struct vm_guest_state *state)
+{
+	state->cr2 = read_cr2();
+}
+
+static void load_guest_state(struct vm_guest_state *state)
+{
+	write_cr2(state->cr2);
+}
+
 asmlinkage unsigned long
 __akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
 		int launched);
@@ -496,30 +516,27 @@ __akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
 static int vm_enter_exit(struct vm_context *vm)
 {
 	unsigned long r;
-	unsigned long flags;
 
-	local_irq_save(flags);
 	r = __akvm_vcpu_run(&vm->host_state, &vm->guest_state,
 			    vm->launched);
-	local_irq_restore(flags);
-	if (r) {
-		switch(r) {
-		case 1:
-			pr_err("failed vmentry: instruction error:0x%lx\n",
-			       vmcs_read_32(VMX_INSTRUCTION_ERROR));
-			break;
-		case 2:
-			pr_err("failedInvalid vmentry:\n");
-			break;
-		default:
-			pr_err("failed unknown\n");
-			break;
-		}
-
+	if (!r) {
+		vm->launched = true;
 		return r;
 	}
 
-	vm->launched = true;
+	switch(r) {
+	case 1:
+		pr_err("failed vmentry: instruction error:0x%lx\n",
+		       vmcs_read_32(VMX_INSTRUCTION_ERROR));
+		break;
+	case 2:
+		pr_err("failedInvalid vmentry:\n");
+		break;
+	default:
+		pr_err("failed unknown\n");
+		break;
+	}
+
 	return r;
 }
 
@@ -534,6 +551,8 @@ static void handle_vm_exit(struct vm_context *vm)
 
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
+	unsigned long flags;
+
 	/*
 	  prepare VMCS and sub struct
 		alloc vmcs and sub struct
@@ -578,12 +597,22 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	if (r)
 		goto exit;
 
+	local_irq_save(flags);
+
+	save_host_state(&vm_context.host_state);
+	load_guest_state(&vm_context.guest_state);
+
 	r = vm_enter_exit(&vm_context);
+
+	save_guest_state(&vm_context.guest_state);
+	load_host_state(&vm_context.host_state);
+
+	local_irq_restore(flags);
+
 	if (r)
 		goto exit;
 
 	handle_vm_exit(&vm_context);
-
  exit:
 	vmcs_clear(vm_context.vmcs);
 	vmx_off();
