@@ -142,13 +142,18 @@ struct gpr_context
 
 struct vm_host_state
 {
+	/* sync with asm part */
 	struct gpr_context gprs;
 	unsigned long rflags;
+
+	unsigned long cr2;
 } __attribute__((packed));
 
 struct vm_guest_state
 {
 	struct gpr_context gprs;
+
+	unsigned long cr2;
 } __attribute__((packed));
 
 struct vm_context
