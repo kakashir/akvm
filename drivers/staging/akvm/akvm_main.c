@@ -683,12 +683,12 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 
 static void save_host_state(struct vm_host_state *state)
 {
-	state->cr2 = read_cr2();
+
 }
 
 static void load_host_state(struct vm_host_state *state)
 {
-	write_cr2(state->cr2);
+
 }
 
 static void save_guest_state(struct vm_guest_state *state)
