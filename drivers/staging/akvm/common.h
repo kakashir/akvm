@@ -145,7 +145,6 @@ struct vm_host_state
 	/* sync with asm part */
 	unsigned long rflags;
 
-	unsigned long cr2;
 } __attribute__((packed));
 
 struct vm_guest_state
