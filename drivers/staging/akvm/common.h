@@ -143,7 +143,6 @@ struct gpr_context
 struct vm_host_state
 {
 	/* sync with asm part */
-	struct gpr_context gprs;
 	unsigned long rflags;
 
 	unsigned long cr2;

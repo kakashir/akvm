@@ -810,7 +810,10 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	vmx_off();
 	preempt_enable();
 
+	vm_context.launched = false;
+
 	free_vmcs(&vm_context);
+
 	return r;
 }
 
