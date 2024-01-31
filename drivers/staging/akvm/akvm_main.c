@@ -6,154 +6,43 @@
 #include <uapi/linux/akvm.h>
 
 #include <asm/msr-index.h>
-#include <asm/vmx.h>
 #include <asm/cpu_entry_area.h>
 #include <asm/idtentry.h>
 
 #include "common.h"
+#include "x86.h"
+#include "vmx.h"
 
-#define VMCS_MEM_TYPE_UC 0
-#define VMCS_MEM_TYPE_WB 6
+#define VMX_PINBASE_CTL_MIN		       \
+	(VMX_PINBASE_EXTERNAL_INTERRUPT_EXIT | \
+	 VMX_PINBASE_NMI_EXIT)
+
+#define VMX_PROCBASE_2ND_CTL_MIN		\
+	(VMX_PROCBASE_2ND_ENABLE_EPT |		\
+	 VMX_PROCBASE_2ND_UNRESTRICT_GUEST)
+
+#define VMX_ENTRY_CTL_MIN			\
+	(VMX_ENTRY_LOAD_DR_DEBUGCTL |		\
+	 VMX_ENTRY_LOAD_PERF_GLOBAL_CTL |	\
+	 VMX_ENTRY_LOAD_PAT |			\
+	 VMX_ENTRY_LOAD_EFER |			\
+	 VMX_ENTRY_LOAD_LBR_CTL |		\
+	 VMX_ENTRY_LOAD_PKRS)
+
+#define VMX_EXIT_CTL_MIN			\
+	(VMX_EXIT_SAVE_DR_DEBUGCTL |		\
+	 VMX_EXIT_IA32E |			\
+	 VMX_EXIT_LOAD_PERF_GLOBAL_CTL |	\
+	 VMX_EXIT_ACK_INTERRUPT |		\
+	 VMX_EXIT_SAVE_PAT |			\
+	 VMX_EXIT_LOAD_PAT |			\
+	 VMX_EXIT_SAVE_EFER |			\
+	 VMX_EXIT_LOAD_EFER |			\
+	 VMX_EXIT_LOAD_PKRS |			\
+	 VMX_EXIT_SAVE_PERF_GLOBAL_CTL)
 
 static struct vmx_capability vmx_capability;
-
-static void vmx_get_ctl_msr_fix_bit(int msr, u32 *ctl_fix_0, u32 *ctl_fix_1)
-{
-	u32 low, high;
-
-	rdmsr(msr, low, high);
-
-	*ctl_fix_0 = ~high;
-	*ctl_fix_1 = low;
-}
-
-static void vmx_get_ctl_msr_fix_bit2(int msr, u64 *ctl_fix_0, u64 *ctl_fix_1)
-{
-	u64 val;
-
-	rdmsrl(msr, val);
-
-	*ctl_fix_0 = ~val;
-	*ctl_fix_1 = 0;
-}
-
-static void vmx_get_cr_fix_bit(int msr_fixed0, int msr_fixed1,
-			       u64* cr_fixed0, u64 *cr_fixed1)
-{
-	u64 val;
-
-	rdmsrl(msr_fixed0, val);
-	*cr_fixed1 = val;
-
-	rdmsrl(msr_fixed1, val);
-	*cr_fixed0 = ~val;
-}
-
-#define vmx_check_ctl_bit(val, expect_val) \
-	(((val) & (expect_val)) == (expect_val))
-
-#define  vmx_adjust_ctl_bit(val, fixed0, fixed1) \
-{ \
-	(val) &= ~(fixed0);			\
-	(val) |= (fixed1);			\
-}
-
-static int probe_vmx_basic_info(struct vmx_capability *info)
-{
-	u32 proc_based_allowed_1;
-
-	rdmsrl(MSR_IA32_VMX_BASIC, info->msr_vmx_basic);
-	rdmsrl(MSR_IA32_VMX_MISC, info->msr_vmx_misc);
-	rdmsrl(MSR_IA32_VMX_EPT_VPID_CAP, info->msr_ept_vpid);
-
-	vmx_get_ctl_msr_fix_bit(MSR_IA32_VMX_TRUE_ENTRY_CTLS,
-				&info->vmentry_fixed0,
-				&info->vmentry_fixed1);
-	vmx_get_ctl_msr_fix_bit(MSR_IA32_VMX_TRUE_EXIT_CTLS,
-				&info->vmexit_fixed0,
-				&info->vmexit_fixed1);
-
-	vmx_get_ctl_msr_fix_bit(MSR_IA32_VMX_TRUE_PINBASED_CTLS,
-				&info->pin_based_exec_fixed_0,
-				&info->pin_based_exec_fixed_1);
-
-	vmx_get_ctl_msr_fix_bit(MSR_IA32_VMX_TRUE_PROCBASED_CTLS,
-				&info->proc_based_exec_fixed0,
-				&info->proc_based_exec_fixed1);
-
-	proc_based_allowed_1 = ~info->proc_based_exec_fixed0;
-	if (proc_based_allowed_1 & CPU_BASED_ACTIVATE_SECONDARY_CONTROLS)
-		vmx_get_ctl_msr_fix_bit(MSR_IA32_VMX_PROCBASED_CTLS2,
-					&info->proc_based_2nd_exec_fixed0,
-					&info->proc_based_2nd_exec_fixed1);
-	if (proc_based_allowed_1 & CPU_BASED_ACTIVATE_TERTIARY_CONTROLS)
-		vmx_get_ctl_msr_fix_bit2(MSR_IA32_VMX_PROCBASED_CTLS3,
-					 &info->proc_based_3rd_exec_fixed0,
-					 &info->proc_based_3rd_exec_fixed1);
-
-	vmx_get_cr_fix_bit(MSR_IA32_VMX_CR0_FIXED0,
-			   MSR_IA32_VMX_CR0_FIXED1,
-			   &info->cr0_fixed0, &info->cr0_fixed1);
-	vmx_get_cr_fix_bit(MSR_IA32_VMX_CR4_FIXED0,
-			   MSR_IA32_VMX_CR4_FIXED1,
-			   &info->cr4_fixed0, &info->cr4_fixed1);
-
-	pr_info("pin control: fixed0: 0x%x fixed1:0x%x\n",
-		info->pin_based_exec_fixed_0,
-		info->pin_based_exec_fixed_1);
-	pr_info("proc control: fixed0: 0x%x fixed1:0x%x\n",
-		info->proc_based_exec_fixed0,
-		info->proc_based_exec_fixed1);
-	pr_info("proc 2nd control: fixed0: 0x%x fixed1:0x%x\n",
-		info->proc_based_2nd_exec_fixed0,
-		info->proc_based_2nd_exec_fixed1);
-	pr_info("proc 3rd control: fixed0: 0x%llx fixed1:0x%llx\n",
-		info->proc_based_3rd_exec_fixed0,
-		info->proc_based_3rd_exec_fixed1);
-	pr_info("vmentry control: fixed0: 0x%x fixed1: 0x%x\n",
-		info->vmentry_fixed0, info->vmentry_fixed1);
-	pr_info("vmexit control: fixed0: 0x%x fixed1: 0x%x\n",
-			info->vmexit_fixed0, info->vmexit_fixed1);
-	pr_info("cr0 fixed0: 0x%llx fixed1: 0x%llx\n",
-		info->cr0_fixed0, info->cr0_fixed1);
-	pr_info("cr4 fixed0: 0x%llx fixed1: 0x%llx\n",
-		info->cr4_fixed0, info->cr4_fixed1);
-
-	return 0;
-}
-
 static struct vm_context vm_context;
-
-static int vmx_on(struct vmx_region *vmx_region)
-{
-	unsigned long pa = __pa(vmx_region);
-
-	cr4_set_bits(X86_CR4_VMXE);
-	asm_volatile_goto("1: vmxon %0\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : : "m"(pa)
-			  : : fault, failinvalid);
-	pr_info("VMXON!\n");
-	return 0;
- fault:
-	pr_err("VMXON failed:0x%lx\n", (unsigned long)vmx_region);
-	cr4_clear_bits(X86_CR4_VMXE);
-	return -EFAULT;
- failinvalid:
-	pr_err("VMXON VMfailedInvalid:0x%lx\n", (unsigned long)vmx_region);
-	return -EINVAL;
-}
-
-static void vmx_off(void)
-{
-	asm_volatile_goto("1: vmxoff\n\r"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : : : : fault);
- fault:
-	cr4_clear_bits(X86_CR4_VMXE);
-	pr_info("VMXOFF!\n");
-}
 
 static void free_vmcs(struct vm_context *vm)
 {
@@ -191,82 +80,10 @@ static int alloc_vmcs(struct vm_context *vm)
 	return -ENOMEM;
 }
 
-static int vmcs_load(struct vmx_vmcs *vmcs)
-{
-	unsigned long pa = __pa(vmcs);
-
-	asm_volatile_goto("1: vmptrld %0\n\t"
-			  "jz %l[fail]\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : :"m"(pa)
-			  : "cc"
-			  : fault, fail, failinvalid);
-
-	return 0;
- fault:
-	pr_err("vmcs_load() fault:0x%lx\n", (unsigned long)vmcs);
-	return -EFAULT;
- fail:
-	pr_err("vmcs_load() VMfailed:0x%lx instruction error:0x%ld\n",
-	       (unsigned long)vmcs,
-	       vmcs_read_32(VMX_INSTRUCTION_ERROR));
-	return -EINVAL;
- failinvalid:
-	pr_err("vmcs_load() VMfailedInvalid:0x%lx\n", (unsigned long)vmcs);
-	return -EINVAL;
-}
-
-static void vmcs_clear(struct vmx_vmcs *vmcs)
-{
-	unsigned long pa = __pa(vmcs);
-
-	asm_volatile_goto("1: vmclear %0\n\t"
-			  "jz %l[fail]\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : :"m"(pa)
-			  : "cc"
-			  : fault, fail, failinvalid);
-	return;
- fault:
-	pr_err("vmcs_clear() fault:0x%lx\n", (unsigned long)vmcs);
-	return;
- fail:
-	/* TODO: Read instruction error from vmcs  */
-	pr_err("vmcs_clear() VMfailed:0x%lx instruction error:%ld\n",
-	       (unsigned long)vmcs,
-	       vmcs_read_32(VMX_INSTRUCTION_ERROR));
-	return;
- failinvalid:
-	pr_err("vmcs_clear() VMfailedInvalid:0x%lx\n", (unsigned long)vmcs);
-	return;
-}
-
-
-static void prepare_vmx_region(struct vmx_region *region,
-			       unsigned int size,
-			       unsigned int revision)
-{
-	memset(region, 0, size);
-	region->revision = revision;
-}
-
-static void prepare_vmcs(struct vmx_vmcs *vmcs, unsigned int size,
-			 unsigned int revision)
-{
-	memset(vmcs, 0, size);
-	vmcs->revision = revision;
-	vmcs->shadow = 0;
-	vmcs->abort = 0;
-	/* SDM3 25.11.3 */
-	vmcs_clear(vmcs);
-}
-
 static int setup_vmcs_control(struct vm_context *vm,
-			       struct vmx_capability *cap)
+			      struct vmx_capability *cap)
 {
-	unsigned int vmx_pinbase = VMX_EXEC_CTL_MIN;
+	unsigned int vmx_pinbase = VMX_PINBASE_CTL_MIN;
 	unsigned int vmx_procbase = VMX_PROCBASE_CTL_MIN;
 	unsigned int vmx_procbase_2nd = VMX_PROCBASE_2ND_CTL_MIN;
 	unsigned int vmx_entry = VMX_ENTRY_CTL_MIN;
@@ -275,7 +92,7 @@ static int setup_vmcs_control(struct vm_context *vm,
 	vmx_adjust_ctl_bit(vmx_pinbase,
 			   cap->pin_based_exec_fixed_0,
 			   cap->pin_based_exec_fixed_1);
-	if (!vmx_check_ctl_bit(vmx_pinbase, VMX_EXEC_CTL_MIN)) {
+	if (!vmx_check_ctl_bit(vmx_pinbase, VMX_PINBASE_CTL_MIN)) {
 		pr_err("unsupported vmx pinbase:0x%x\n", vmx_pinbase);
 		return -EINVAL;
 	}
