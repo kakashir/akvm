@@ -145,3 +145,20 @@ SYM_INNER_LABEL_ALIGN(akvm_vmx_vmexit, SYM_L_GLOBAL)
 	pop %rbp
 	RET
 SYM_FUNC_END(__akvm_vcpu_run)
+
+SYM_FUNC_START(__akvm_call_host_intr)
+	push %rbp
+	mov %rsp, %rbp
+
+	and $-16, %rsp
+	push $__KERNEL_DS
+	push %rbp
+	pushf
+	push $__KERNEL_CS
+	call *%rdi
+
+	mov %rbp, %rsp
+	pop %rbp
+	RET
+
+SYM_FUNC_END(__akvm_call_host_intr)

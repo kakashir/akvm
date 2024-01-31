@@ -8,6 +8,7 @@
 #include <asm/msr-index.h>
 #include <asm/vmx.h>
 #include <asm/cpu_entry_area.h>
+#include <asm/idtentry.h>
 
 #include "common.h"
 
@@ -683,22 +684,49 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 
 static void save_host_state(struct vm_host_state *state)
 {
+	int i;
 
+	state->cr8 = read_cr8();
+
+	for (i = 0; i < 8; ++i) {
+		if (i == 4 || i == 5)
+			continue;
+		state->dr[i] = read_dr(i);
+	}
+
+	rdmsrl(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
+	rdmsrl(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
+	rdmsrl(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
 }
 
 static void load_host_state(struct vm_host_state *state)
 {
+	int i;
+
+	write_cr8(state->cr8);
+
+	for (i = 0; i < 8; ++i) {
+		if (i == 4 || i == 5)
+			continue;
+		write_dr(i, state->dr[i]);
+	}
+
+	wrmsrl(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
+	wrmsrl(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
+	wrmsrl(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
 
 }
 
 static void save_guest_state(struct vm_guest_state *state)
 {
 	state->cr2 = read_cr2();
+	state->cr8 = read_cr8();
 }
 
 static void load_guest_state(struct vm_guest_state *state)
 {
 	write_cr2(state->cr2);
+	write_cr8(state->cr8);
 }
 
 asmlinkage unsigned long
@@ -712,6 +740,9 @@ static int vm_enter_exit(struct vm_context *vm)
 	r = __akvm_vcpu_run(&vm->host_state, &vm->guest_state,
 			    vm->launched);
 	if (!r) {
+		vm->exit.val = vmcs_read_32(VMX_EXIT_REASON);
+		vm->intr_info.val = vmcs_read_32(VMX_EXIT_INTR_INFO);
+		vm->intr_error_code = vmcs_read_32(VMX_EXIT_INTR_ERROR_CODE);
 		vm->launched = true;
 		return r;
 	}
@@ -732,13 +763,56 @@ static int vm_enter_exit(struct vm_context *vm)
 	return r;
 }
 
-static void handle_vm_exit(struct vm_context *vm)
+static int handle_vm_exit(struct vm_context *vm)
 {
-	int exit_reason;
+	pr_info("exit_reason: 0x%x\n", vm->exit.val);
+	return 0;
+}
 
-	exit_reason = vmcs_read_32(VMX_EXIT_REASON);
+extern void __akvm_call_host_intr(unsigned long);
 
-	pr_info("exit_reason: 0x%x\n", exit_reason);
+static int do_host_intr(struct vm_context *vm)
+{
+	unsigned long handler;
+	union idt_entry64 *idte;
+	struct gdt_idt_table_desc idt_desc;
+
+	if (WARN_ON(!vm->intr_info.valid))
+		return -EINVAL;
+
+	if (WARN_ON(vm->intr_info.type != VMX_INTR_TYPE_EXTERNAL))
+		return -EINVAL;
+
+	get_idt_table_desc(&idt_desc);
+	idte = (void*)idt_desc.base;
+	handler = get_idt_entry_point(idte + vm->intr_info.vector);
+
+	__akvm_call_host_intr(handler);
+	return 0;
+}
+
+static int do_host_nmi(struct vm_context *vm)
+{
+	if (WARN_ON(!vm->intr_info.valid))
+		return -EINVAL;
+
+	if (WARN_ON(vm->intr_info.type != VMX_INTR_TYPE_NMI))
+		return -EINVAL;
+
+	__akvm_call_host_intr((unsigned long)asm_exc_nmi_kvm_vmx);
+	return 0;
+}
+
+static int handle_vm_exit_irqoff(struct vm_context *vm)
+{
+	switch (vm->exit.reason) {
+	case VMX_EXIT_EXCEP_NMI:
+		return do_host_nmi(vm);
+	case VMX_EXIT_INTR:
+		return do_host_intr(vm);
+	default:
+		return 0;
+	}
 }
 
 static int akvm_ioctl_run(struct file *f, unsigned long param)
@@ -799,12 +873,13 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	save_guest_state(&vm_context.guest_state);
 	load_host_state(&vm_context.host_state);
 
+	if (!r && !vm_context.exit.failed)
+		handle_vm_exit_irqoff(&vm_context);
+
 	local_irq_restore(flags);
 
-	if (r)
-		goto exit;
-
-	handle_vm_exit(&vm_context);
+	if (!r && !vm_context.exit.failed)
+		handle_vm_exit(&vm_context);
  exit:
 	vmcs_clear(vm_context.vmcs);
 	vmx_off();
