@@ -632,6 +632,33 @@ static int handle_vm_exit_irqoff(struct vm_context *vm)
 	}
 }
 
+static void vmx_basic_info_checker(void *info)
+{
+	int r;
+	atomic_t *ret = info;
+	struct vmx_capability cap;
+
+	r = probe_vmx_basic_info(&cap);
+	if (r) {
+		atomic_inc(ret);
+		return;
+	}
+
+	if (memcmp(&cap, &vmx_capability, sizeof(cap)))
+		atomic_inc(ret);
+}
+
+static int check_vmx_basic_info(void)
+{
+	atomic_t r = ATOMIC_INIT(0);
+
+	on_each_cpu(vmx_basic_info_checker, &r, 1);
+
+	if (atomic_read(&r))
+		return -EFAULT;
+	return 0;
+}
+
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
 	unsigned long flags;
@@ -654,6 +681,11 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	 */
 	int r;
 
+	r = check_vmx_basic_info();
+	if (r) {
+		pr_err("check_vmx_basic_info() failed\n");
+		return r;
+	}
 	r = alloc_vmcs(&vm_context);
 	if (r)
 		return r;
