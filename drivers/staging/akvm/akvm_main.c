@@ -15,7 +15,15 @@
 #include "x86.h"
 #include "vmx.h"
 
+static __read_mostly struct preempt_ops akvm_preempt_ops;
+
 static DEFINE_PER_CPU(struct vmx_region *, vmx_region);
+
+struct vmcs_list {
+	struct list_head head;
+};
+
+static DEFINE_PER_CPU(struct vmcs_list, vmcs_list);
 
 #define VMX_PINBASE_CTL_MIN		       \
 	(VMX_PINBASE_EXTERNAL_INTERRUPT_EXIT | \
@@ -60,7 +68,7 @@ static void free_vmcs(struct vm_context *vm)
 		kfree(region);
 	}
 
-	kfree(vm->vmcs);
+	kfree(vm->vmcs.vmcs);
 	free_page(vm->ept_root);
 }
 
@@ -81,11 +89,12 @@ static int alloc_vmcs(struct vm_context *vm)
 		per_cpu(vmx_region, cpu) = region;
 	}
 
-	vm->vmcs = kmalloc(size, GFP_KERNEL_ACCOUNT);
-	if (!vm->vmcs) {
+	vm->vmcs.vmcs = kmalloc(size, GFP_KERNEL_ACCOUNT);
+	if (!vm->vmcs.vmcs) {
 		pr_err("failed to alloc vmcs\n");
 		goto failed_free;
 	}
+	vm->vmcs.last_cpu = -1;
 
 	vm->ept_root = __get_free_page(GFP_KERNEL);
 	if (!vm->ept_root) {
@@ -574,12 +583,12 @@ static int vm_enter_exit(struct vm_context *vm)
 	unsigned long r;
 
 	r = __akvm_vcpu_run(&vm->host_state, &vm->guest_state,
-			    vm->launched);
+			    vm->vmcs.launched);
 	if (!r) {
 		vm->exit.val = vmcs_read_32(VMX_EXIT_REASON);
 		vm->intr_info.val = vmcs_read_32(VMX_EXIT_INTR_INFO);
 		vm->intr_error_code = vmcs_read_32(VMX_EXIT_INTR_ERROR_CODE);
-		vm->launched = true;
+		vm->vmcs.launched = true;
 		return r;
 	}
 
@@ -714,9 +723,99 @@ static void vmx_off_all(void)
 	on_each_cpu(vmx_off_cpu, NULL, 1);
 }
 
+static void __vm_clear_on_cpu(void *info)
+{
+	struct vm_vmcs *vm_vmcs = info;
+
+	list_del(&vm_vmcs->entry);
+
+	smp_wmb();
+
+	vmcs_clear(vm_vmcs->vmcs);
+	vm_vmcs->launched = false;
+	vm_vmcs->last_cpu = -1;
+}
+
+static void __vm_put(struct vm_context *vm, bool sync_put)
+{
+	if (!sync_put)
+		return;
+
+	smp_rmb();
+	if (vm->vmcs.last_cpu == -1)
+		return;
+
+	smp_call_function_single(vm->vmcs.last_cpu,
+				 __vm_clear_on_cpu, &vm->vmcs, 1);
+}
+
+static void vm_put(struct vm_context *vm, bool sync_put)
+{
+	preempt_disable();
+
+	preempt_notifier_unregister(&vm->preempt_notifier);
+
+	__vm_put(vm, sync_put);
+
+	preempt_enable();
+}
+
+static int __vm_load(struct vm_context *vm)
+{
+	unsigned long flag;
+	int cpu = smp_processor_id();
+	int r = 0;
+
+	smp_rmb();
+
+	if (vm->vmcs.last_cpu == cpu)
+		goto exit;
+
+	if (vm->vmcs.last_cpu != -1)
+		__vm_put(vm, true);
+
+	r = vmcs_load(vm->vmcs.vmcs);
+	if (r)
+		goto exit;
+
+	vm->vmcs.launched = false;
+	vm->vmcs.last_cpu = cpu;
+
+	/*
+	  make sure launch/last_cpu become visible before
+	  insert to list
+	*/
+	smp_wmb();
+
+	local_irq_save(flag);
+	list_add(&vm->vmcs.entry, &per_cpu(vmcs_list, cpu).head);
+	local_irq_restore(flag);
+ exit:
+	return r;
+}
+
+static int vm_load(struct vm_context *vm)
+{
+	int cpu;
+	int r;
+
+	preempt_disable();
+	cpu = smp_processor_id();
+
+	preempt_notifier_init(&vm->preempt_notifier,
+			      &akvm_preempt_ops);
+	preempt_notifier_register(&vm->preempt_notifier);
+
+	r = __vm_load(vm);
+
+	preempt_enable();
+	return r;
+}
+
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
 	unsigned long flags;
+	long count = 100000;
 
 	/*
 	  prepare VMCS and sub struct
@@ -748,11 +847,10 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 
 	vmx_on_all();
 
-	preempt_disable();
-	prepare_vmcs(vm_context.vmcs,
+	prepare_vmcs(vm_context.vmcs.vmcs,
 		     vmx_region_size(&vmx_capability),
 		     vmx_vmcs_revision(&vmx_capability));
-	vmcs_load(vm_context.vmcs);
+	vm_load(&vm_context);
 
 	r = setup_vmcs_control(&vm_context, &vmx_capability);
 	if (r)
@@ -766,30 +864,31 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	if (r)
 		goto exit;
 
-	local_irq_save(flags);
+	while(count-- > 0 && !r) {
+		preempt_disable();
+		local_irq_save(flags);
 
-	save_host_state(&vm_context.host_state);
-	load_guest_state(&vm_context.guest_state);
+		save_host_state(&vm_context.host_state);
+		load_guest_state(&vm_context.guest_state);
 
-	r = vm_enter_exit(&vm_context);
+		r = vm_enter_exit(&vm_context);
 
-	save_guest_state(&vm_context.guest_state);
-	load_host_state(&vm_context.host_state);
+		save_guest_state(&vm_context.guest_state);
+		load_host_state(&vm_context.host_state);
 
-	if (!r && !vm_context.exit.failed)
-		handle_vm_exit_irqoff(&vm_context);
+		if (!r && !vm_context.exit.failed)
+			handle_vm_exit_irqoff(&vm_context);
 
-	local_irq_restore(flags);
+		local_irq_restore(flags);
+		preempt_enable();
 
-	if (!r && !vm_context.exit.failed)
-		handle_vm_exit(&vm_context);
+		if (!r && !vm_context.exit.failed)
+			r = handle_vm_exit(&vm_context);
+	}
  exit:
-	vmcs_clear(vm_context.vmcs);
-	preempt_enable();
+	vm_put(&vm_context, true);
 
 	vmx_off_all();
-
-	vm_context.launched = false;
 
 	free_vmcs(&vm_context);
 
@@ -829,6 +928,37 @@ static long akvm_dev_ioctl(struct file *f, unsigned int ioctl,
 	return r;
 }
 
+static void akvm_sched_in(struct preempt_notifier *pn, int cpu)
+{
+	struct vm_context *vm =
+		container_of(pn, struct vm_context, preempt_notifier);
+	struct gdt_idt_table_desc gdt_desc;
+	unsigned long val;
+
+	__vm_load(vm);
+#if 0
+	/* Linux has per cpu setting for below context, refer kvm_main.c */
+	vmcs_write_natural(VMX_HOST_TR_BASE,
+			   (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
+	get_gdt_table_desc(&gdt_desc);
+	vmcs_write_natural(VMX_HOST_GDT_BASE, gdt_desc.base);
+
+	rdmsrl(MSR_IA32_SYSENTER_ESP, val);
+	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_ESP, val);
+#else
+	setup_vmcs_host_state(vm);
+#endif
+}
+
+static void akvm_sched_out(struct preempt_notifier *pn,
+			  struct task_struct *next)
+{
+	struct vm_context *vm =
+		container_of(pn, struct vm_context, preempt_notifier);
+
+	__vm_put(vm, false);
+}
+
 static struct file_operations akvm_dev_ops = {
 	.unlocked_ioctl = akvm_dev_ioctl,
 	.llseek = noop_llseek,
@@ -840,9 +970,29 @@ static struct miscdevice akvm_dev = {
 	&akvm_dev_ops,
 };
 
+static int do_akvm_init(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu)
+		INIT_LIST_HEAD(&per_cpu(vmcs_list, cpu).head);
+
+	preempt_notifier_inc();
+	akvm_preempt_ops.sched_in = akvm_sched_in;
+	akvm_preempt_ops.sched_out = akvm_sched_out;
+
+	return 0;
+}
+
 static int __init akvm_init(void)
 {
 	int r;
+
+	r = do_akvm_init();
+	if (r) {
+		pr_err("akvm: failed to init akvm:%d\n", r);
+		goto exit;
+	}
 
 	r = probe_vmx_basic_info(&vmx_capability);
 	if (r) {
@@ -858,9 +1008,21 @@ static int __init akvm_init(void)
 	return r;
 }
 
+static void do_akvm_exit(void)
+{
+	int cpu;
+
+	preempt_notifier_dec();
+
+	for_each_possible_cpu(cpu)
+		WARN_ON(!list_empty(&per_cpu(vmcs_list, cpu).head));
+
+}
+
 static void __exit akvm_exit(void)
 {
 	misc_deregister(&akvm_dev);
+	do_akvm_exit();
 }
 
 module_init(akvm_init);

@@ -2,6 +2,7 @@
 #define _AKVM_COMMON_H_
 
 #include <linux/types.h>
+#include <linux/preempt.h>
 #include <linux/mm.h>
 #include "vmx.h"
 
@@ -67,8 +68,15 @@ struct vm_guest_state {
 	unsigned long cr8;
 } __attribute__((packed));
 
-struct vm_context {
+struct vm_vmcs {
+	struct list_head entry;
 	struct vmx_vmcs *vmcs;
+	int launched;
+	int last_cpu;
+};
+
+struct vm_context {
+	struct vm_vmcs vmcs;
 	unsigned long ept_root;
 
 	unsigned int pinbase_ctl;
@@ -76,7 +84,6 @@ struct vm_context {
 	unsigned int procbase_2nd_ctl;
 	unsigned int entry_ctl;
 	unsigned int exit_ctl;
-	int launched;
 
 	union vmx_exit_reason exit;
 	union vmx_intr_info intr_info;
@@ -84,6 +91,8 @@ struct vm_context {
 
 	struct vm_host_state host_state;
 	struct vm_guest_state guest_state;
+
+	struct preempt_notifier preempt_notifier;
 };
 
 
