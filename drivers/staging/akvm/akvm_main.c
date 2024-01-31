@@ -2,6 +2,8 @@
 #include <linux/module.h>
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
+#include <linux/percpu.h>
+#include <linux/topology.h>
 
 #include <uapi/linux/akvm.h>
 
@@ -12,6 +14,8 @@
 #include "common.h"
 #include "x86.h"
 #include "vmx.h"
+
+static DEFINE_PER_CPU(struct vmx_region *, vmx_region);
 
 #define VMX_PINBASE_CTL_MIN		       \
 	(VMX_PINBASE_EXTERNAL_INTERRUPT_EXIT | \
@@ -46,8 +50,16 @@ static struct vm_context vm_context;
 
 static void free_vmcs(struct vm_context *vm)
 {
+	int cpu;
+	struct vmx_region *region;
+
 	/* kfree takes care NULL ptr */
-	kfree(vm->vmx_region);
+	for_each_possible_cpu(cpu) {
+		region = per_cpu(vmx_region, cpu);
+		per_cpu(vmx_region, cpu) = NULL;
+		kfree(region);
+	}
+
 	kfree(vm->vmcs);
 	free_page(vm->ept_root);
 }
@@ -55,11 +67,18 @@ static void free_vmcs(struct vm_context *vm)
 static int alloc_vmcs(struct vm_context *vm)
 {
 	size_t size = vmx_region_size(&vmx_capability);
+	struct vmx_region *region;
+	int cpu;
 
-	vm->vmx_region = kmalloc(size, GFP_KERNEL_ACCOUNT);
-	if (!vm->vmx_region) {
-		pr_err("failed to alloc vmxon region\n");
-		return -ENOMEM;
+	for_each_possible_cpu(cpu) {
+		WARN_ON(per_cpu(vmx_region, cpu));
+		region = kmalloc_node(size, GFP_KERNEL_ACCOUNT,
+				      cpu_to_node(cpu));
+		if (!region) {
+			pr_err("failed to alloc vmxon region for cpu %d\n", cpu);
+			goto failed_free;
+		}
+		per_cpu(vmx_region, cpu) = region;
 	}
 
 	vm->vmcs = kmalloc(size, GFP_KERNEL_ACCOUNT);
@@ -659,6 +678,42 @@ static int check_vmx_basic_info(void)
 	return 0;
 }
 
+static void vmx_on_cpu(void *info)
+{
+	atomic_t *r = info;
+	struct vmx_region *region = this_cpu_read(vmx_region);
+
+	prepare_vmx_region(region,
+			   vmx_region_size(&vmx_capability),
+			   vmx_vmcs_revision(&vmx_capability));
+	if (vmx_on(region))
+		atomic_inc(r);
+}
+
+static void vmx_off_cpu(void *info)
+{
+	struct vmx_region *region = this_cpu_read(vmx_region);
+
+	if (region)
+		vmx_off();
+}
+
+static int vmx_on_all(void)
+{
+	atomic_t r = ATOMIC_INIT(0);
+
+	on_each_cpu(vmx_on_cpu, &r, 1);
+
+	if (atomic_read(&r))
+		return -EFAULT;
+	return 0;
+}
+
+static void vmx_off_all(void)
+{
+	on_each_cpu(vmx_off_cpu, NULL, 1);
+}
+
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
 	unsigned long flags;
@@ -686,15 +741,14 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		pr_err("check_vmx_basic_info() failed\n");
 		return r;
 	}
+
 	r = alloc_vmcs(&vm_context);
 	if (r)
 		return r;
 
-	prepare_vmx_region(vm_context.vmx_region,
-			   vmx_region_size(&vmx_capability),
-			   vmx_vmcs_revision(&vmx_capability));
+	vmx_on_all();
+
 	preempt_disable();
-	vmx_on(vm_context.vmx_region);
 	prepare_vmcs(vm_context.vmcs,
 		     vmx_region_size(&vmx_capability),
 		     vmx_vmcs_revision(&vmx_capability));
@@ -731,8 +785,9 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		handle_vm_exit(&vm_context);
  exit:
 	vmcs_clear(vm_context.vmcs);
-	vmx_off();
 	preempt_enable();
+
+	vmx_off_all();
 
 	vm_context.launched = false;
 

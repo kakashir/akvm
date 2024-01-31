@@ -68,7 +68,6 @@ struct vm_guest_state {
 } __attribute__((packed));
 
 struct vm_context {
-	struct vmx_region  *vmx_region;
 	struct vmx_vmcs *vmcs;
 	unsigned long ept_root;
 
