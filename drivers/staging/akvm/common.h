@@ -7,8 +7,7 @@
 #define FUNC_ENTRY()  __FUNC_TRACE__("ENTRY")
 #define FUNC_EXIT()  __FUNC_TRACE__("EXIT")
 
-struct vmx_capability
-{
+struct vmx_capability {
 	u64 msr_vmx_basic;
 	u64 msr_vmx_misc;
 	u64 msr_ept_vpid;
@@ -87,21 +86,51 @@ static inline bool vmx_ept_ad_bit(struct vmx_capability *vmx_cap)
 	return !!(vmx_cap->msr_ept_vpid & BIT(21));
 }
 
-struct vmx_region
-{
+struct vmx_region {
 	u32 revision:31;
 };
 
 /* VMCS only has valid head definition */
-struct vmx_vmcs
-{
+struct vmx_vmcs {
 	u32 revision:31;
 	u32 shadow:1;
 	u32 abort;
 };
 
-enum gpr_context_id
-{
+union vmx_exit_reason {
+	struct {
+		unsigned int reason:16;
+		unsigned int reserved:11;
+		unsigned int enclave:1;
+		unsigned int mtf:1;
+		unsigned int vmx_root:1;
+		unsigned int reserved1:1;
+		unsigned int failed:1;
+	} __attribute__((packed));
+	int val;
+};
+#define VMX_EXIT_EXCEP_NMI  0
+#define	VMX_EXIT_INTR  1
+
+union vmx_intr_info {
+	struct {
+		unsigned int vector:8;
+		unsigned int type:3;
+		unsigned int error_code:1;
+		unsigned int iret_nmi_block:1;
+		unsigned int reserved:18;
+		unsigned int valid:1;
+	} __attribute__((packed));
+	int val;
+};
+#define VMX_INTR_TYPE_EXTERNAL 0
+#define VMX_INTR_TYPE_NMI 2
+#define VMX_INTR_HW_EXCEP 3
+#define VMX_INTR_PRIV_SW_EXCEP 5
+#define VMX_INTR_SW_EXCEP 6
+
+
+enum gpr_context_id {
 	GPR_RAX = 0,
 	GPR_RBX,
 	GPR_RCX,
@@ -120,8 +149,7 @@ enum gpr_context_id
 	GPR_R15,
 };
 
-struct gpr_context
-{
+struct gpr_context {
 	unsigned long rax;
 	unsigned long rbx;
 	unsigned long rcx;
@@ -140,22 +168,27 @@ struct gpr_context
 	unsigned long r15;
 } __attribute__((packed));
 
-struct vm_host_state
-{
+struct vm_host_state {
 	/* sync with asm part */
 	unsigned long rflags;
+	unsigned long cr8;
+
+	unsigned long dr[8];
+
+	unsigned long msr_debugctl;
+	unsigned long msr_rtit_ctl;
+	unsigned long msr_lbr_ctl;
+
 
 } __attribute__((packed));
 
-struct vm_guest_state
-{
+struct vm_guest_state {
 	struct gpr_context gprs;
-
 	unsigned long cr2;
+	unsigned long cr8;
 } __attribute__((packed));
 
-struct vm_context
-{
+struct vm_context {
 	struct vmx_region  *vmx_region;
 	struct vmx_vmcs *vmcs;
 	unsigned long ept_root;
@@ -167,6 +200,10 @@ struct vm_context
 	unsigned int exit_ctl;
 	int launched;
 
+	union vmx_exit_reason exit;
+	union vmx_intr_info intr_info;
+	int intr_error_code;
+
 	struct vm_host_state host_state;
 	struct vm_guest_state guest_state;
 };
@@ -176,6 +213,8 @@ typedef unsigned int vmcs_field;
 enum vmcs_filed_id {
 	VMX_INSTRUCTION_ERROR = 0x4400,
 	VMX_EXIT_REASON = 0x4402,
+	VMX_EXIT_INTR_INFO = 0x4404,
+	VMX_EXIT_INTR_ERROR_CODE = 0x4406,
 
 	VMX_PINBASE_CTL = 0x4000,
 	VMX_PROCBASE_CTL = 0x4002,
@@ -460,8 +499,7 @@ VMCS_WRITE(natural)
 #define VMX_EPT_ENABLE_AD_BITS BIT(6)
 #define VMX_EPT_WALK_LENGTH_SHIFT 3
 
-union vmx_segment_selector
-{
+union vmx_segment_selector {
 	struct {
 		unsigned int rpl:2;
 		unsigned int ti:1;
@@ -594,6 +632,101 @@ static inline void get_gdt_table_desc(struct gdt_idt_table_desc *desc)
 static inline void get_idt_table_desc(struct gdt_idt_table_desc *desc)
 {
 	asm volatile("sidt %0":"=m"(*desc));
+}
+
+union idt_entry64 {
+	struct {
+		unsigned int offset15_0:16;
+		unsigned int selector:16;
+		unsigned int ist:3;
+		unsigned int zero:5;
+		unsigned int type:4;
+		unsigned int zero1:1;
+		unsigned int dpl:2;
+		unsigned int p:1;
+		unsigned int offset31_16:16;
+		unsigned int offset63_32;
+		unsigned int reserved;
+	} __attribute__((packed));
+	int val[4];
+};
+
+static inline unsigned long get_idt_entry_point(union idt_entry64 * idte)
+{
+	return idte->offset15_0 | (idte->offset31_16 << 16) |
+		((unsigned long)idte->offset63_32 << 32);
+}
+
+static inline unsigned long read_cr8(void)
+{
+	unsigned long val;
+
+	asm volatile("mov %%cr8, %0\n\t":"=r"(val));
+	return val;
+}
+
+static inline void write_cr8(unsigned long val)
+{
+	asm volatile("mov %0, %%cr8\n\t"::"r"(val));
+}
+
+static inline unsigned long read_dr(int index)
+{
+	unsigned long val;
+
+	switch(index) {
+	case 0:
+		asm volatile("mov %%dr0, %0\n\t":"=r"(val));
+		break;
+	case 1:
+		asm volatile("mov %%dr1, %0\n\t":"=r"(val));
+		break;
+	case 2:
+		asm volatile("mov %%dr2, %0\n\t":"=r"(val));
+		break;
+	case 3:
+		asm volatile("mov %%dr3, %0\n\t":"=r"(val));
+		break;
+	case 6:
+		asm volatile("mov %%dr6, %0\n\t":"=r"(val));
+		break;
+	case 7:
+		asm volatile("mov %%dr7, %0\n\t":"=r"(val));
+		break;
+	default:
+		val = 0;
+		WARN_ON(1);
+	}
+
+	return val;
+}
+
+static inline void write_dr(int index, unsigned long val)
+{
+	switch(index) {
+	case 0:
+		asm volatile("mov %0, %%dr0\n\t"::"r"(val));
+		break;
+	case 1:
+		asm volatile("mov %0, %%dr1\n\t"::"r"(val));
+		break;
+	case 2:
+		asm volatile("mov %0, %%dr2\n\t"::"r"(val));
+		break;
+	case 3:
+		asm volatile("mov %0, %%dr3\n\t"::"r"(val));
+		break;
+	case 6:
+		asm volatile("mov %0, %%dr6\n\t"::"r"(val));
+		break;
+	case 7:
+		asm volatile("mov %0, %%dr7\n\t"::"r"(val));
+		break;
+	default:
+		val = 0;
+		WARN_ON(1);
+	}
+
 }
 
 #define MSR_IA32_PKRS 0x6e1
