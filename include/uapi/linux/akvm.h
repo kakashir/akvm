@@ -22,6 +22,7 @@ struct akvm_vmx_info {
 	__u64 vmx_ept_vpid_msr;
 };
 #define AKVM_GET_VMX_INFO	_IOR(AKVMIO,  0x01, struct akvm_vmx_info)
-#define AKVM_CREATE_VM _IO(AKVMIO,   0x02)
+#define AKVM_CREATE_VM   _IO(AKVMIO,   0x02)
+#define AKVM_CREATE_VCPU _IO(AKVMIO,   0x03)
 
 #endif /* __LINUX_AKVM_H */

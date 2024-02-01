@@ -2,5 +2,5 @@
 #
 # A toy kvm
 #
-akvm-y += akvm_main.o akvm_enter.o vmx.o
+akvm-y += akvm_main.o akvm_enter.o vmx.o vm.o vcpu.o
 obj-$(CONFIG_AKVM) += akvm.o
