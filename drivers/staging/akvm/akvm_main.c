@@ -21,6 +21,9 @@
 #define akvm_pr_info(...)
 #endif
 
+static long usage_count;
+static DEFINE_MUTEX(usage_count_lock);
+
 static __read_mostly struct preempt_ops akvm_preempt_ops;
 
 static DEFINE_PER_CPU(struct vmx_region *, vmx_region);
@@ -64,6 +67,12 @@ static struct vm_context vm_context;
 
 static void free_vmcs(struct vm_context *vm)
 {
+	kfree(vm->vmcs.vmcs);
+	free_page(vm->ept_root);
+}
+
+static void free_vmx_region(void)
+{
 	int cpu;
 	struct vmx_region *region;
 
@@ -73,16 +82,12 @@ static void free_vmcs(struct vm_context *vm)
 		per_cpu(vmx_region, cpu) = NULL;
 		kfree(region);
 	}
-
-	kfree(vm->vmcs.vmcs);
-	free_page(vm->ept_root);
 }
 
-static int alloc_vmcs(struct vm_context *vm)
+static int alloc_vmx_region(size_t size)
 {
-	size_t size = vmx_region_size(&vmx_capability);
-	struct vmx_region *region;
 	int cpu;
+	struct vmx_region *region;
 
 	for_each_possible_cpu(cpu) {
 		WARN_ON(per_cpu(vmx_region, cpu));
@@ -94,6 +99,17 @@ static int alloc_vmcs(struct vm_context *vm)
 		}
 		per_cpu(vmx_region, cpu) = region;
 	}
+	return 0;
+
+ failed_free:
+	free_vmx_region();
+	return -ENOMEM;
+}
+
+
+static int alloc_vmcs(struct vm_context *vm)
+{
+	size_t size = vmx_region_size(&vmx_capability);
 
 	vm->vmcs.vmcs = kmalloc(size, GFP_KERNEL_ACCOUNT);
 	if (!vm->vmcs.vmcs) {
@@ -803,6 +819,43 @@ static int __vm_load(struct vm_context *vm)
 	return r;
 }
 
+static int akvm_hardware_enable(void)
+{
+	int r = 0;
+
+	mutex_lock(&usage_count_lock);
+
+	if (++usage_count == 1) {
+		r = check_vmx_basic_info();
+		if (r) {
+			pr_err("check_vmx_basic_info() failed\n");
+			goto exit;
+		}
+
+		r = alloc_vmx_region(vmx_region_size(&vmx_capability));
+		if (r) {
+			pr_err("failed to alloc vmx region\n");
+			goto exit;
+		}
+		r = vmx_on_all();
+	}
+ exit:
+	mutex_unlock(&usage_count_lock);
+	return r;
+}
+
+static void akvm_hardware_disable(void)
+{
+	mutex_lock(&usage_count_lock);
+
+	if (--usage_count == 0) {
+		vmx_off_all();
+		free_vmx_region();
+	}
+
+	mutex_unlock(&usage_count_lock);
+}
+
 static int vm_load(struct vm_context *vm)
 {
 	int cpu;
@@ -844,17 +897,9 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	 */
 	int r;
 
-	r = check_vmx_basic_info();
-	if (r) {
-		pr_err("check_vmx_basic_info() failed\n");
-		return r;
-	}
-
 	r = alloc_vmcs(&vm_context);
 	if (r)
 		return r;
-
-	vmx_on_all();
 
 	prepare_vmcs(vm_context.vmcs.vmcs,
 		     vmx_region_size(&vmx_capability),
@@ -897,8 +942,6 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
  exit:
 	vm_put(&vm_context, true);
 
-	vmx_off_all();
-
 	free_vmcs(&vm_context);
 
 	return r;
@@ -915,6 +958,20 @@ static int akvm_ioctl_get_vmx_info(struct file *f, unsigned long param)
 	if (copy_to_user((void __user*)param, &vmx_info, sizeof(vmx_info)))
 		return -EFAULT;
 
+	return 0;
+}
+
+static int akvm_dev_open(struct inode *inode, struct file *file)
+{
+	file->private_data = NULL;
+
+	return akvm_hardware_enable();
+}
+
+static int akvm_dev_release(struct inode *inode, struct file *file)
+{
+
+	akvm_hardware_disable();
 	return 0;
 }
 
@@ -973,8 +1030,10 @@ static void akvm_sched_out(struct preempt_notifier *pn,
 }
 
 static struct file_operations akvm_dev_ops = {
+	.open = akvm_dev_open,
 	.unlocked_ioctl = akvm_dev_ioctl,
 	.llseek = noop_llseek,
+	.release = akvm_dev_release,
 };
 
 static struct miscdevice akvm_dev = {
