@@ -189,7 +189,7 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	} msr_val;
 
 	struct gdt_idt_table_desc gdt_idt_desc;
-	int cpu = smp_processor_id();
+	int cpu;
 
 	/*
 	  CR0 CR3 CR4
@@ -211,9 +211,6 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	  IA32_S_CET (not need now)
 	  IA32_INETRRUPT_SSP_TABLE_ADDR (not need now)
 	 */
-	vmcs_write_natural(VMX_HOST_CR0, read_cr0());
-	vmcs_write_natural(VMX_HOST_CR3, __read_cr3());
-	vmcs_write_natural(VMX_HOST_CR4, __read_cr4());
 
 	vmcs_write_natural(VMX_HOST_RIP, (unsigned long)akvm_vmx_vmexit);
 
@@ -231,9 +228,11 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	vmcs_write_natural(VMX_HOST_GS_BASE, get_gsbase());
 	akvm_pr_info("gsbase: 0x%lx\n", get_gsbase());
 
+	cpu = get_cpu();
 	vmcs_write_natural(VMX_HOST_TR_BASE,
 			   (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
 	akvm_pr_info("tr_base: 0x%lx\n", (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
+	put_cpu();
 
 	get_gdt_table_desc(&gdt_idt_desc);
 	vmcs_write_natural(VMX_HOST_GDT_BASE, gdt_idt_desc.base);
@@ -256,22 +255,6 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	rdmsr(MSR_IA32_SYSENTER_EIP, msr_val.low, msr_val.high);
 	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_EIP, msr_val.val);
 	akvm_pr_info("sysenter_eip: 0x%lx\n", msr_val.val);
-
-	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, msr_val.val);
-	vmcs_write_64(VMX_HOST_IA32_PERF_GLOBAL_CTL, msr_val.val);
-	akvm_pr_info("perf_global_ctl: 0x%lx\n", msr_val.val);
-
-	rdmsrl(MSR_IA32_CR_PAT, msr_val.val);
-	vmcs_write_64(VMX_HOST_IA32_PAT, msr_val.val);
-	akvm_pr_info("ia32_pat: 0x%lx\n", msr_val.val);
-
-	rdmsrl(MSR_EFER, msr_val.val);
-	vmcs_write_64(VMX_HOST_IA32_EFER, msr_val.val);
-	akvm_pr_info("ia32_efer: 0x%lx\n", msr_val.val);
-
-	rdmsrl(MSR_IA32_PKRS, msr_val.val);
-	vmcs_write_64(VMX_HOST_IA32_PKRS, msr_val.val);
-	akvm_pr_info("ia32_pkrs: 0x%lx\n", msr_val.val);
 
 	return 0;
 }
@@ -536,18 +519,38 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 static void save_host_state(struct vm_host_state *state)
 {
 	int i;
+	unsigned long val;
 
+	vmcs_write_natural(VMX_HOST_CR0, read_cr0());
+	vmcs_write_natural(VMX_HOST_CR3, __read_cr3());
+	vmcs_write_natural(VMX_HOST_CR4, __read_cr4());
 	state->cr8 = read_cr8();
+
+	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, val);
+	vmcs_write_64(VMX_HOST_IA32_PERF_GLOBAL_CTL, val);
+	akvm_pr_info("perf_global_ctl: 0x%lx\n", val);
+
+	rdmsrl(MSR_IA32_CR_PAT, val);
+	vmcs_write_64(VMX_HOST_IA32_PAT, val);
+	akvm_pr_info("ia32_pat: 0x%lx\n", val);
+
+	rdmsrl(MSR_EFER, val);
+	vmcs_write_64(VMX_HOST_IA32_EFER, val);
+	akvm_pr_info("ia32_efer: 0x%lx\n", val);
+
+	rdmsrl(MSR_IA32_PKRS, val);
+	vmcs_write_64(VMX_HOST_IA32_PKRS, val);
+	akvm_pr_info("ia32_pkrs: 0x%lx\n", val);
+
+	rdmsrl(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
+	rdmsrl(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
+	rdmsrl(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
 
 	for (i = 0; i < 8; ++i) {
 		if (i == 4 || i == 5)
 			continue;
 		state->dr[i] = read_dr(i);
 	}
-
-	rdmsrl(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
-	rdmsrl(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
-	rdmsrl(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
 }
 
 static void load_host_state(struct vm_host_state *state)
@@ -942,8 +945,15 @@ static void akvm_sched_in(struct preempt_notifier *pn, int cpu)
 	unsigned long val;
 
 	__vm_load(vm);
-#if 0
-	/* Linux has per cpu setting for below context, refer kvm_main.c */
+
+	/* update "per cpu" context below, part refer virt/kvm/kvm_main.c */
+
+	vmcs_write_natural(VMX_HOST_FS_BASE, get_fsbase());
+	akvm_pr_info("fsbase: 0x%lx\n", get_fsbase());
+
+	vmcs_write_natural(VMX_HOST_GS_BASE, get_gsbase());
+	akvm_pr_info("gsbase: 0x%lx\n", get_gsbase());
+
 	vmcs_write_natural(VMX_HOST_TR_BASE,
 			   (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
 	get_gdt_table_desc(&gdt_desc);
@@ -951,9 +961,6 @@ static void akvm_sched_in(struct preempt_notifier *pn, int cpu)
 
 	rdmsrl(MSR_IA32_SYSENTER_ESP, val);
 	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_ESP, val);
-#else
-	setup_vmcs_host_state(vm);
-#endif
 }
 
 static void akvm_sched_out(struct preempt_notifier *pn,
