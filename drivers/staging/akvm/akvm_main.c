@@ -792,9 +792,6 @@ static int __vm_load(struct vm_context *vm)
 
 	smp_rmb();
 
-	if (vm->vmcs.last_cpu == cpu)
-		goto exit;
-
 	if (vm->vmcs.last_cpu != -1)
 		__vm_put(vm, true);
 
