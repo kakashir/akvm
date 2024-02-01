@@ -1,5 +1,11 @@
 #include "vmx.h"
 
+#ifdef _DEBUG
+#define vmx_pr_info  pr_info
+#else
+#define vmx_pr_info(...)
+#endif
+
 int probe_vmx_basic_info(struct vmx_capability *info)
 {
 	u32 proc_based_allowed_1;
@@ -40,25 +46,25 @@ int probe_vmx_basic_info(struct vmx_capability *info)
 			   MSR_IA32_VMX_CR4_FIXED1,
 			   &info->cr4_fixed0, &info->cr4_fixed1);
 
-	pr_info("pin control: fixed0: 0x%x fixed1:0x%x\n",
+	vmx_pr_info("pin control: fixed0: 0x%x fixed1:0x%x\n",
 		info->pin_based_exec_fixed_0,
 		info->pin_based_exec_fixed_1);
-	pr_info("proc control: fixed0: 0x%x fixed1:0x%x\n",
+	vmx_pr_info("proc control: fixed0: 0x%x fixed1:0x%x\n",
 		info->proc_based_exec_fixed0,
 		info->proc_based_exec_fixed1);
-	pr_info("proc 2nd control: fixed0: 0x%x fixed1:0x%x\n",
+	vmx_pr_info("proc 2nd control: fixed0: 0x%x fixed1:0x%x\n",
 		info->proc_based_2nd_exec_fixed0,
 		info->proc_based_2nd_exec_fixed1);
-	pr_info("proc 3rd control: fixed0: 0x%llx fixed1:0x%llx\n",
+	vmx_pr_info("proc 3rd control: fixed0: 0x%llx fixed1:0x%llx\n",
 		info->proc_based_3rd_exec_fixed0,
 		info->proc_based_3rd_exec_fixed1);
-	pr_info("vmentry control: fixed0: 0x%x fixed1: 0x%x\n",
+	vmx_pr_info("vmentry control: fixed0: 0x%x fixed1: 0x%x\n",
 		info->vmentry_fixed0, info->vmentry_fixed1);
-	pr_info("vmexit control: fixed0: 0x%x fixed1: 0x%x\n",
+	vmx_pr_info("vmexit control: fixed0: 0x%x fixed1: 0x%x\n",
 			info->vmexit_fixed0, info->vmexit_fixed1);
-	pr_info("cr0 fixed0: 0x%llx fixed1: 0x%llx\n",
+	vmx_pr_info("cr0 fixed0: 0x%llx fixed1: 0x%llx\n",
 		info->cr0_fixed0, info->cr0_fixed1);
-	pr_info("cr4 fixed0: 0x%llx fixed1: 0x%llx\n",
+	vmx_pr_info("cr4 fixed0: 0x%llx fixed1: 0x%llx\n",
 		info->cr4_fixed0, info->cr4_fixed1);
 
 	return 0;
@@ -82,7 +88,7 @@ int vmx_on(struct vmx_region *vmx_region)
 			  _ASM_EXTABLE(1b, %l[fault])
 			  : : "m"(pa)
 			  : : fault, failinvalid);
-	pr_info("VMXON!\n");
+	vmx_pr_info("VMXON!\n");
 	return 0;
  fault:
 	pr_err("VMXON failed:0x%lx\n", (unsigned long)vmx_region);
@@ -100,7 +106,7 @@ void vmx_off(void)
 			  : : : : fault);
  fault:
 	cr4_clear_bits(X86_CR4_VMXE);
-	pr_info("VMXOFF!\n");
+	vmx_pr_info("VMXOFF!\n");
 }
 
 void prepare_vmcs(struct vmx_vmcs *vmcs, unsigned int size,
