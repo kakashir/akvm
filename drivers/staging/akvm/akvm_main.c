@@ -15,6 +15,12 @@
 #include "x86.h"
 #include "vmx.h"
 
+#ifdef _DEBUG
+#define akvm_pr_info pr_info
+#else
+#define akvm_pr_info(...)
+#endif
+
 static __read_mostly struct preempt_ops akvm_preempt_ops;
 
 static DEFINE_PER_CPU(struct vmx_region *, vmx_region);
@@ -220,52 +226,52 @@ static int setup_vmcs_host_state(struct vm_context *vm)
 	vmcs_write_16(VMX_HOST_TR, get_tr());
 
 	vmcs_write_natural(VMX_HOST_FS_BASE, get_fsbase());
-	pr_info("fsbase: 0x%lx\n", get_fsbase());
+	akvm_pr_info("fsbase: 0x%lx\n", get_fsbase());
 
 	vmcs_write_natural(VMX_HOST_GS_BASE, get_gsbase());
-	pr_info("gsbase: 0x%lx\n", get_gsbase());
+	akvm_pr_info("gsbase: 0x%lx\n", get_gsbase());
 
 	vmcs_write_natural(VMX_HOST_TR_BASE,
 			   (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
-	pr_info("tr_base: 0x%lx\n", (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
+	akvm_pr_info("tr_base: 0x%lx\n", (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
 
 	get_gdt_table_desc(&gdt_idt_desc);
 	vmcs_write_natural(VMX_HOST_GDT_BASE, gdt_idt_desc.base);
-	pr_info("gdt: base:0x%lx size:%d\n",
+	akvm_pr_info("gdt: base:0x%lx size:%d\n",
 		gdt_idt_desc.base, (int)gdt_idt_desc.size);
 
 	get_idt_table_desc(&gdt_idt_desc);
 	vmcs_write_natural(VMX_HOST_IDT_BASE, gdt_idt_desc.base);
-	pr_info("idt: base:0x%lx size:%d\n",
+	akvm_pr_info("idt: base:0x%lx size:%d\n",
 		gdt_idt_desc.base, (int)gdt_idt_desc.size);
 
 	rdmsr(MSR_IA32_SYSENTER_CS, msr_val.low, msr_val.high);
 	vmcs_write_32(VMX_HOST_IA32_SYSENTER_CS, msr_val.low);
-	pr_info("sysenter_cs: 0x%x\n", msr_val.low);
+	akvm_pr_info("sysenter_cs: 0x%x\n", msr_val.low);
 
 	rdmsr(MSR_IA32_SYSENTER_ESP, msr_val.low, msr_val.high);
 	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_ESP, msr_val.val);
-	pr_info("sysenter_esp: 0x%lx\n", msr_val.val);
+	akvm_pr_info("sysenter_esp: 0x%lx\n", msr_val.val);
 
 	rdmsr(MSR_IA32_SYSENTER_EIP, msr_val.low, msr_val.high);
 	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_EIP, msr_val.val);
-	pr_info("sysenter_eip: 0x%lx\n", msr_val.val);
+	akvm_pr_info("sysenter_eip: 0x%lx\n", msr_val.val);
 
 	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, msr_val.val);
 	vmcs_write_64(VMX_HOST_IA32_PERF_GLOBAL_CTL, msr_val.val);
-	pr_info("perf_global_ctl: 0x%lx\n", msr_val.val);
+	akvm_pr_info("perf_global_ctl: 0x%lx\n", msr_val.val);
 
 	rdmsrl(MSR_IA32_CR_PAT, msr_val.val);
 	vmcs_write_64(VMX_HOST_IA32_PAT, msr_val.val);
-	pr_info("ia32_pat: 0x%lx\n", msr_val.val);
+	akvm_pr_info("ia32_pat: 0x%lx\n", msr_val.val);
 
 	rdmsrl(MSR_EFER, msr_val.val);
 	vmcs_write_64(VMX_HOST_IA32_EFER, msr_val.val);
-	pr_info("ia32_efer: 0x%lx\n", msr_val.val);
+	akvm_pr_info("ia32_efer: 0x%lx\n", msr_val.val);
 
 	rdmsrl(MSR_IA32_PKRS, msr_val.val);
 	vmcs_write_64(VMX_HOST_IA32_PKRS, msr_val.val);
-	pr_info("ia32_pkrs: 0x%lx\n", msr_val.val);
+	akvm_pr_info("ia32_pkrs: 0x%lx\n", msr_val.val);
 
 	return 0;
 }
@@ -275,7 +281,7 @@ static void setup_ept_root(struct vm_context *vm, struct vmx_capability *cap)
 	unsigned long ept_val;
 
 	if (!vm->ept_root) {
-		pr_info("ept_root: skip due to no ept_root page\n");
+		akvm_pr_info("ept_root: skip due to no ept_root page\n");
 		return;
 	}
 
@@ -288,7 +294,7 @@ static void setup_ept_root(struct vm_context *vm, struct vmx_capability *cap)
 		ept_val |= VMX_EPT_ENABLE_AD_BITS;
 
 	vmcs_write_64(VMX_EPTP_POINTER, ept_val);
-	pr_info("ept_root: 0x%lx\n", ept_val);
+	akvm_pr_info("ept_root: 0x%lx\n", ept_val);
 }
 
 static int setup_vmcs_guest_state(struct vm_context *vm,
@@ -345,31 +351,31 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 	    (vm->procbase_ctl & VMX_PROCBASE_ACTIVE_2ND_CONTROL))
 		val &= ~(X86_CR0_PG | X86_CR0_PE);
 	vmcs_write_natural(VMX_GUEST_CR0, val);
-	pr_info("guest cr0: 0x%lx\n", val);
+	akvm_pr_info("guest cr0: 0x%lx\n", val);
 
 	val = 0;
 	vmcs_write_natural(VMX_GUEST_CR3, val);
-	pr_info("guest cr3: 0x%lx\n", val);
+	akvm_pr_info("guest cr3: 0x%lx\n", val);
 
 	val = cap->cr4_fixed1;
 	vmcs_write_natural(VMX_GUEST_CR4, val);
-	pr_info("guest cr4: 0x%lx\n", val);
+	akvm_pr_info("guest cr4: 0x%lx\n", val);
 
 	val = X86_DR7_RESERVED_1;
 	vmcs_write_natural(VMX_GUEST_DR7, val);
-	pr_info("guest dr7: 0x%lx\n", val);
+	akvm_pr_info("guest dr7: 0x%lx\n", val);
 
 	val = 0;
 	vmcs_write_natural(VMX_GUEST_RIP, val);
-	pr_info("guest rip: 0x%lx\n", val);
+	akvm_pr_info("guest rip: 0x%lx\n", val);
 
 	val = 0;
 	vmcs_write_natural(VMX_GUEST_RSP, val);
-	pr_info("guest rsp: 0x%lx\n", val);
+	akvm_pr_info("guest rsp: 0x%lx\n", val);
 
 	val = X86_FLAGS_RESERVED_1;
 	vmcs_write_natural(VMX_GUEST_RFLAGS, val);
-	pr_info("guest rflags: 0x%lx\n", val);
+	akvm_pr_info("guest rflags: 0x%lx\n", val);
 
 	/*
 	  CS SS DS ES FS GS LDTR TR:
@@ -388,7 +394,7 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 	data_seg.ar.db = 0;
 	data_seg.ar.g = 0;
 	data_seg.ar.unusable = false;
-	pr_info("guest data seg: base:0x%x limit:0x%x ar:0x%x\n",
+	akvm_pr_info("guest data seg: base:0x%x limit:0x%x ar:0x%x\n",
 		data_seg.base, data_seg.limit, data_seg.ar.val);
 	vmcs_write_16(VMX_GUEST_ES, data_seg.selector.val);
 	vmcs_write_16(VMX_GUEST_SS, data_seg.selector.val);
@@ -421,7 +427,7 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 	code_seg.ar.db = 0;
 	code_seg.ar.g = 0;
 	code_seg.ar.unusable = false;
-	pr_info("guest code seg: base:0x%x limit:0x%x ar:0x%x\n",
+	akvm_pr_info("guest code seg: base:0x%x limit:0x%x ar:0x%x\n",
 		code_seg.base, code_seg.limit, code_seg.ar.val);
 	vmcs_write_16(VMX_GUEST_CS, code_seg.selector.val);
 	vmcs_write_natural(VMX_GUEST_CS_BASE, code_seg.base);
@@ -432,7 +438,7 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 	ldtr_seg.limit= 0xffff;
 	ldtr_seg.selector.val = 0;
 	ldtr_seg.ar.unusable = true;
-	pr_info("guest ldtr seg: base:0x%x limit:0x%x ar:0x%x\n",
+	akvm_pr_info("guest ldtr seg: base:0x%x limit:0x%x ar:0x%x\n",
 		ldtr_seg.base, ldtr_seg.limit, ldtr_seg.ar.val);
 	vmcs_write_16(VMX_GUEST_LDTR, ldtr_seg.selector.val);
 	vmcs_write_natural(VMX_GUEST_LDTR_BASE, ldtr_seg.base);
@@ -449,7 +455,7 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 	tr_seg.ar.db = 0;
 	tr_seg.ar.g = 0;
 	tr_seg.ar.unusable = false;
-	pr_info("guest tr seg: base:0x%x limit:0x%x ar:0x%x\n",
+	akvm_pr_info("guest tr seg: base:0x%x limit:0x%x ar:0x%x\n",
 		tr_seg.base, tr_seg.limit, tr_seg.ar.val);
 	vmcs_write_16(VMX_GUEST_TR, tr_seg.selector.val);
 	vmcs_write_natural(VMX_GUEST_TR_BASE, tr_seg.base);
@@ -464,10 +470,10 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 	val = 0;
 	vmcs_write_natural(VMX_GUEST_GDTR_BASE, val);
 	vmcs_write_32(VMX_GUEST_GDTR_LIMIT, val);
-	pr_info("guest gdt: base:0x%lx limit:0x%lx\n", val, val);
+	akvm_pr_info("guest gdt: base:0x%lx limit:0x%lx\n", val, val);
 	vmcs_write_natural(VMX_GUEST_IDTR_BASE, val);
 	vmcs_write_32(VMX_GUEST_IDTR_LIMIT, val);
-	pr_info("guest idt: base:0x%lx limit:0x%lx\n", val, val);
+	akvm_pr_info("guest idt: base:0x%lx limit:0x%lx\n", val, val);
 
 	/*
 	  MSR_IA32_DEBUGCTL
@@ -511,19 +517,19 @@ static int setup_vmcs_guest_state(struct vm_context *vm,
 	 */
 	val = VMX_CPU_ACTIVE;
 	vmcs_write_32(VMX_GUEST_ACTIVITY, val);
-	pr_info("guest activity: 0x%lx\n", val);
+	akvm_pr_info("guest activity: 0x%lx\n", val);
 
 	val = 0;
 	vmcs_write_32(VMX_GUEST_INTR_BLOCK, val);
-	pr_info("guest intr block: 0x%lx\n", val);
+	akvm_pr_info("guest intr block: 0x%lx\n", val);
 
 	val = 0;
 	vmcs_write_natural(VMX_GUEST_PENDING_DB_EXCEPT, val);
-	pr_info("guest pending #DB: 0x%lx\n", val);
+	akvm_pr_info("guest pending #DB: 0x%lx\n", val);
 
 	val = -1ULL;
 	vmcs_write_64(VMX_GUEST_VMCS_LINK_POINTER, val);
-	pr_info("guest vmcs link pointer: 0x%lx\n", val);
+	akvm_pr_info("guest vmcs link pointer: 0x%lx\n", val);
 	return 0;
 }
 
@@ -610,7 +616,7 @@ static int vm_enter_exit(struct vm_context *vm)
 
 static int handle_vm_exit(struct vm_context *vm)
 {
-	pr_info("exit_reason: 0x%x\n", vm->exit.val);
+	akvm_pr_info("exit_reason: 0x%x\n", vm->exit.val);
 	return 0;
 }
 
