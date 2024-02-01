@@ -63,7 +63,6 @@ static DEFINE_PER_CPU(struct vmcs_list, vmcs_list);
 	 VMX_EXIT_SAVE_PERF_GLOBAL_CTL)
 
 static struct vmx_capability vmx_capability;
-static struct vm_context vm_context;
 
 static void free_vmcs(struct vm_context *vm)
 {
@@ -876,8 +875,13 @@ static int vm_load(struct vm_context *vm)
 
 static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
+	struct vm_context *vm = f->private_data;
 	unsigned long flags;
 	long count = 100000;
+	int r;
+
+	if (!vm)
+		return -EINVAL;
 
 	/*
 	  prepare VMCS and sub struct
@@ -895,26 +899,14 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 	  VMX OFF
 	  PREEMPTION_ENABLE()
 	 */
-	int r;
+	vm_load(vm);
 
-	r = alloc_vmcs(&vm_context);
-	if (r)
-		return r;
-
-	prepare_vmcs(vm_context.vmcs.vmcs,
-		     vmx_region_size(&vmx_capability),
-		     vmx_vmcs_revision(&vmx_capability));
-	vm_load(&vm_context);
-
-	r = setup_vmcs_control(&vm_context, &vmx_capability);
+	r = setup_vmcs_host_state(vm);
 	if (r)
 		goto exit;
-	r = setup_vmcs_host_state(&vm_context);
-	if (r)
-		goto exit;
-	setup_ept_root(&vm_context, &vmx_capability);
+	setup_ept_root(vm, &vmx_capability);
 
-	r = setup_vmcs_guest_state(&vm_context, &vmx_capability);
+	r = setup_vmcs_guest_state(vm, &vmx_capability);
 	if (r)
 		goto exit;
 
@@ -922,27 +914,25 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		preempt_disable();
 		local_irq_save(flags);
 
-		save_host_state(&vm_context.host_state);
-		load_guest_state(&vm_context.guest_state);
+		save_host_state(&vm->host_state);
+		load_guest_state(&vm->guest_state);
 
-		r = vm_enter_exit(&vm_context);
+		r = vm_enter_exit(vm);
 
-		save_guest_state(&vm_context.guest_state);
-		load_host_state(&vm_context.host_state);
+		save_guest_state(&vm->guest_state);
+		load_host_state(&vm->host_state);
 
-		if (!r && !vm_context.exit.failed)
-			handle_vm_exit_irqoff(&vm_context);
+		if (!r && !vm->exit.failed)
+			handle_vm_exit_irqoff(vm);
 
 		local_irq_restore(flags);
 		preempt_enable();
 
-		if (!r && !vm_context.exit.failed)
-			r = handle_vm_exit(&vm_context);
+		if (!r && !vm->exit.failed)
+			r = handle_vm_exit(vm);
 	}
  exit:
-	vm_put(&vm_context, true);
-
-	free_vmcs(&vm_context);
+	vm_put(vm, false);
 
 	return r;
 }
@@ -961,6 +951,41 @@ static int akvm_ioctl_get_vmx_info(struct file *f, unsigned long param)
 	return 0;
 }
 
+static int akvm_ioctl_create_vm(struct file *f)
+{
+	int r;
+	struct vm_context *vm;
+
+	vm = kzalloc(sizeof(*vm), GFP_KERNEL_ACCOUNT);
+	if (!vm)
+		return -ENOMEM;
+
+	r = alloc_vmcs(vm);
+	if (r)
+		goto failed_free;
+
+	prepare_vmcs(vm->vmcs.vmcs,
+		     vmx_region_size(&vmx_capability),
+		     vmx_vmcs_revision(&vmx_capability));
+
+	vm_load(vm);
+
+	r = setup_vmcs_control(vm, &vmx_capability);
+	if (r)
+		goto failed_free_vmcs;
+
+	vm_put(vm, false);
+
+	f->private_data = vm;
+	return 0;
+
+ failed_free_vmcs:
+	free_vmcs(vm);
+ failed_free:
+	kfree(vm);
+	return r;
+}
+
 static int akvm_dev_open(struct inode *inode, struct file *file)
 {
 	file->private_data = NULL;
@@ -970,6 +995,15 @@ static int akvm_dev_open(struct inode *inode, struct file *file)
 
 static int akvm_dev_release(struct inode *inode, struct file *file)
 {
+	struct vm_context *vm = file->private_data;
+
+	if (vm) {
+		/* pair for vm_put() */
+		vm_load(vm);
+		vm_put(vm, true);
+		free_vmcs(vm);
+		kfree(vm);
+	}
 
 	akvm_hardware_disable();
 	return 0;
@@ -981,6 +1015,9 @@ static long akvm_dev_ioctl(struct file *f, unsigned int ioctl,
 	int r;
 
 	switch(ioctl) {
+	case AKVM_CREATE_VM:
+		r = akvm_ioctl_create_vm(f);
+		break;
 	case AKVM_RUN:
 		r = akvm_ioctl_run(f, param);
 		break;
