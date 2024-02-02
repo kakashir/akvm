@@ -261,6 +261,29 @@ static struct miscdevice akvm_dev = {
 	&akvm_dev_ops,
 };
 
+static void do_akvm_exit(bool unload)
+{
+	int cpu;
+
+	preempt_notifier_dec();
+
+	if (!unload)
+		return;
+
+	for_each_possible_cpu(cpu)
+		WARN_ON(!list_empty(&per_cpu(vmcs_list, cpu).head));
+
+	for_each_possible_cpu(cpu) {
+		WARN_ON(per_cpu(vmx_region, cpu));
+	}
+}
+
+static void __exit akvm_exit(void)
+{
+	misc_deregister(&akvm_dev);
+	do_akvm_exit(true);
+}
+
 static int do_akvm_init(void)
 {
 	int cpu;
@@ -282,38 +305,24 @@ static int __init akvm_init(void)
 	r = do_akvm_init();
 	if (r) {
 		pr_err("akvm: failed to init akvm:%d\n", r);
-		goto exit;
+		return r;
 	}
 
 	r = probe_vmx_basic_info(&vmx_capability);
 	if (r) {
 		pr_err("akvm: failed to probe VMX basic information\n");
-		goto exit;
+		goto uninit;
 	}
 
 	r = misc_register(&akvm_dev);
-	if (r)
+	if (r) {
 		pr_err("akvm: failed to register device\n");
-
- exit:
+		goto uninit;
+	}
 	return r;
-}
-
-static void do_akvm_exit(void)
-{
-	int cpu;
-
-	preempt_notifier_dec();
-
-	for_each_possible_cpu(cpu)
-		WARN_ON(!list_empty(&per_cpu(vmcs_list, cpu).head));
-
-}
-
-static void __exit akvm_exit(void)
-{
-	misc_deregister(&akvm_dev);
-	do_akvm_exit();
+ uninit:
+	do_akvm_exit(false);
+	return r;
 }
 
 module_init(akvm_init);
