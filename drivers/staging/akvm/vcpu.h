@@ -93,14 +93,9 @@ struct vcpu_context {
 	struct file *vm_file;
 };
 
-int akvm_create_vcpu_fd(struct vcpu_context *vcpu, struct file *vm);
+int akvm_create_vcpu(struct file *vm_file);
 void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu);
 void akvm_vcpu_sched_out(struct preempt_notifier *pn,
 			 struct task_struct *next);
-int setup_vmcs_control(struct vcpu_context *vcpu,
-		       struct vmx_capability *cap);
-int alloc_vmcs(struct vcpu_context *vcpu);
-int vcpu_load(struct vcpu_context *vcpu);
-void vcpu_put(struct vcpu_context *vcpu, bool sync_put);
 
 #endif

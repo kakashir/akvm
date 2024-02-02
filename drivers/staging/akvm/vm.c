@@ -37,35 +37,9 @@ static int akvm_vm_release(struct inode *inode, struct file *file)
 static int akvm_vm_ioctl_create_vcpu(struct file *f)
 {
 	int r;
-	struct vcpu_context *vcpu;
 
-	vcpu = kzalloc(sizeof(*vcpu), GFP_KERNEL_ACCOUNT);
-	if (!vcpu)
-		return -ENOMEM;
+	r = akvm_create_vcpu(f);
 
-	r = alloc_vmcs(vcpu);
-	if (r)
-		goto free_vcpu;
-
-	prepare_vmcs(vcpu->vmcs.vmcs,
-		     vmx_region_size(&vmx_capability),
-		     vmx_vmcs_revision(&vmx_capability));
-
-	vcpu_load(vcpu);
-
-	r = setup_vmcs_control(vcpu, &vmx_capability);
-	if (r)
-		goto free_vcpu;
-
-	vcpu_put(vcpu, false);
-
-	r = akvm_create_vcpu_fd(vcpu, f);
-	if (r < 0)
-		goto free_vcpu;
-
-	return r;
-free_vcpu:
-	kfree(vcpu);
 	return r;
 }
 
