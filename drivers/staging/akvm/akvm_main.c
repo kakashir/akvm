@@ -187,20 +187,9 @@ static int akvm_ioctl_get_vmx_info(struct file *f, unsigned long param)
 static int akvm_ioctl_create_vm(struct file *f)
 {
 	int r;
-	struct vm_context *vm;
 
-	vm = kzalloc(sizeof(*vm), GFP_KERNEL_ACCOUNT);
-	if (!vm)
-		return -ENOMEM;
+	r = akvm_create_vm(f);
 
-	r = akvm_create_vm_fd(vm, f);
-	if (r < 0)
-		goto failed_free;
-
-	return r;
-
- failed_free:
-	kfree(vm);
 	return r;
 }
 
