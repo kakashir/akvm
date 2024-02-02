@@ -8,6 +8,6 @@ struct vm_context {
 	struct file *dev;
 };
 
-int akvm_create_vm_fd(struct vm_context *vm, struct file *dev);
+int akvm_create_vm(struct file *dev);
 
 #endif

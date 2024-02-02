@@ -89,19 +89,25 @@ static struct file_operations akvm_vm_ops = {
 	.release = akvm_vm_release,
 };
 
-int akvm_create_vm_fd(struct vm_context *vm, struct file *dev)
+int akvm_create_vm(struct file *dev)
 {
 	int fd;
+	struct vm_context *vm;
 	struct file *file;
+
+	vm = kzalloc(sizeof(*vm),GFP_KERNEL_ACCOUNT);
+	if (!vm)
+		return -ENOMEM;
 
 	fd = get_unused_fd_flags(O_CLOEXEC);
 	if (fd < 0)
-		return fd;
+		goto failed_free;
 
 	file = anon_inode_getfile("akvm-vm", &akvm_vm_ops,  vm, O_RDWR);
 	if (IS_ERR(file)) {
 		put_unused_fd(fd);
-		return PTR_ERR(file);
+		fd = PTR_ERR(file);
+		goto failed_free;
 	}
 
 	if (dev)
@@ -109,5 +115,9 @@ int akvm_create_vm_fd(struct vm_context *vm, struct file *dev)
 
 	fd_install(fd, file);
 	pr_info("install fd:%d\n", fd);
+	return fd;
+
+failed_free:
+	kfree(vm);
 	return fd;
 }
