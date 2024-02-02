@@ -51,10 +51,9 @@ static int akvm_vm_open(struct inode *inode, struct file *file)
 static int akvm_vm_release(struct inode *inode, struct file *file)
 {
 	struct vm_context *vm = file->private_data;
+	struct file *dev_file = vm->dev;
 
 	pr_info("%s\n", __func__);
-	if (vm->dev)
-		fput(vm->dev);
 
 	WARN_ON(!xa_empty(&vm->vcpus));
 	xa_destroy(&vm->vcpus);
@@ -62,6 +61,9 @@ static int akvm_vm_release(struct inode *inode, struct file *file)
 	WARN_ON(!ida_is_empty(&vm->vcpu_index_pool));
 	ida_destroy(&vm->vcpu_index_pool);
 	kfree(vm);
+
+	if (dev_file)
+		fput(dev_file);
 
 	return 0;
 }
