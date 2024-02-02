@@ -75,7 +75,6 @@ struct vm_vmcs {
 
 struct vcpu_context {
 	struct vm_vmcs vmcs;
-	unsigned long ept_root;
 
 	unsigned int pinbase_ctl;
 	unsigned int procbase_ctl;

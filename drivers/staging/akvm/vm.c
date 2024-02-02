@@ -42,6 +42,18 @@ static int akvm_vcpu_create_callback(struct vm_context *vm, int vcpu_index,
 	return r;
 }
 
+static void akvm_deinit_vm(struct vm_context *vm)
+{
+	WARN_ON(!xa_empty(&vm->vcpus));
+	xa_destroy(&vm->vcpus);
+
+	WARN_ON(!ida_is_empty(&vm->vcpu_index_pool));
+	ida_destroy(&vm->vcpu_index_pool);
+
+	/* free_page takes care NULL ptr */
+	free_page(vm->ept_root);
+}
+
 static int akvm_vm_open(struct inode *inode, struct file *file)
 {
 	pr_info("%s\n", __func__);
@@ -55,11 +67,7 @@ static int akvm_vm_release(struct inode *inode, struct file *file)
 
 	pr_info("%s\n", __func__);
 
-	WARN_ON(!xa_empty(&vm->vcpus));
-	xa_destroy(&vm->vcpus);
-
-	WARN_ON(!ida_is_empty(&vm->vcpu_index_pool));
-	ida_destroy(&vm->vcpu_index_pool);
+	akvm_deinit_vm(vm);
 	kfree(vm);
 
 	if (dev_file)
@@ -103,6 +111,10 @@ static struct file_operations akvm_vm_ops = {
 
 static int akvm_init_vm(struct vm_context *vm)
 {
+	vm->ept_root = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!vm->ept_root)
+		return -ENOMEM;
+
 	ida_init(&vm->vcpu_index_pool);
 	mutex_init(&vm->lock);
 	xa_init(&vm->vcpus);
@@ -116,6 +128,7 @@ static int akvm_init_vm(struct vm_context *vm)
 int akvm_create_vm(struct file *dev)
 {
 	int r;
+	int fd;
 	struct vm_context *vm;
 	struct file *file;
 
@@ -129,22 +142,26 @@ int akvm_create_vm(struct file *dev)
 
 	r = get_unused_fd_flags(O_CLOEXEC);
 	if (r < 0)
-		goto failed_free;
+		goto failed_deinit;
+	fd = r;
 
 	file = anon_inode_getfile("akvm-vm", &akvm_vm_ops,  vm, O_RDWR);
 	if (IS_ERR(file)) {
-		put_unused_fd(r);
 		r = PTR_ERR(file);
-		goto failed_free;
+		goto failed_putfd;
 	}
 
 	if (dev)
 		vm->dev = get_file(dev);
 
-	fd_install(r, file);
-	pr_info("install fd:%d\n", r);
-	return r;
+	fd_install(fd, file);
+	pr_info("install fd:%d\n", fd);
+	return fd;
 
+failed_putfd:
+	put_unused_fd(fd);
+failed_deinit:
+	akvm_deinit_vm(vm);
 failed_free:
 	kfree(vm);
 	return r;

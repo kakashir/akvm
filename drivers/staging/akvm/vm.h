@@ -18,6 +18,7 @@ struct vm_context {
 	struct mutex lock;
 	struct ida vcpu_index_pool;
 	struct xarray vcpus;
+	unsigned long ept_root;
 
 	vcpu_create_notifier vcpu_create_cb;
 	vcpu_destroy_notifier vcpu_destroy_cb;
