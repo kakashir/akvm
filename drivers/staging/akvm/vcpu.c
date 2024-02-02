@@ -13,6 +13,7 @@
 
 #include "common.h"
 #include "vcpu.h"
+#include "vm.h"
 #include "vmx.h"
 #include "x86.h"
 
@@ -55,7 +56,6 @@
 static void free_vmcs(struct vcpu_context *vcpu)
 {
 	kfree(vcpu->vmcs.vmcs);
-	free_page(vcpu->ept_root);
 }
 
 static int alloc_vmcs(struct vcpu_context *vcpu)
@@ -65,20 +65,11 @@ static int alloc_vmcs(struct vcpu_context *vcpu)
 	vcpu->vmcs.vmcs = kmalloc(size, GFP_KERNEL_ACCOUNT);
 	if (!vcpu->vmcs.vmcs) {
 		pr_err("failed to alloc vmcs\n");
-		goto failed_free;
+		return -ENOMEM;
 	}
 	vcpu->vmcs.last_cpu = -1;
 
-	vcpu->ept_root = __get_free_page(GFP_KERNEL);
-	if (!vcpu->ept_root) {
-		pr_err("failed to alloc ept root\n");
-		goto failed_free;
-	}
 	return 0;
-
- failed_free:
-	free_vmcs(vcpu);
-	return -ENOMEM;
 }
 
 static void __vmcs_clear_on_cpu(void *info)
@@ -315,15 +306,16 @@ static int setup_vmcs_host_state(struct vcpu_context *vcpu)
 static void setup_ept_root(struct vcpu_context *vcpu, struct vmx_capability *cap)
 {
 	unsigned long ept_val;
+	unsigned long ept_root = vcpu->vm->ept_root;
 
-	if (!vcpu->ept_root) {
+	if (!ept_root) {
 		akvm_pr_info("ept_root: skip due to no ept_root page\n");
 		return;
 	}
 
 	WARN_ON(!vmx_ept_mem_type_wb(cap));
 
-	ept_val = __pa(vcpu->ept_root) & PAGE_MASK;
+	ept_val = __pa(ept_root) & PAGE_MASK;
 	ept_val |= VMX_EPT_MEM_TYPE_WB;
 	ept_val |= (vmx_ept_level(cap) - 1) << VMX_EPT_WALK_LENGTH_SHIFT;
 	if (vmx_ept_ad_bit(cap))
