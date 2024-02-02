@@ -52,13 +52,13 @@
 	 VMX_EXIT_LOAD_PKRS |			\
 	 VMX_EXIT_SAVE_PERF_GLOBAL_CTL)
 
-void free_vmcs(struct vcpu_context *vcpu)
+static void free_vmcs(struct vcpu_context *vcpu)
 {
 	kfree(vcpu->vmcs.vmcs);
 	free_page(vcpu->ept_root);
 }
 
-int alloc_vmcs(struct vcpu_context *vcpu)
+static int alloc_vmcs(struct vcpu_context *vcpu)
 {
 	size_t size = vmx_region_size(&vmx_capability);
 
@@ -107,7 +107,7 @@ static void __vcpu_put(struct vcpu_context *vcpu, bool sync_put)
 				 __vmcs_clear_on_cpu, &vcpu->vmcs, 1);
 }
 
-void vcpu_put(struct vcpu_context *vcpu, bool sync_put)
+static void vcpu_put(struct vcpu_context *vcpu, bool sync_put)
 {
 	preempt_disable();
 
@@ -149,7 +149,7 @@ static int __vcpu_load(struct vcpu_context *vcpu)
 	return r;
 }
 
-int vcpu_load(struct vcpu_context *vcpu)
+static int vcpu_load(struct vcpu_context *vcpu)
 {
 	int cpu;
 	int r;
@@ -167,7 +167,7 @@ int vcpu_load(struct vcpu_context *vcpu)
 	return r;
 }
 
-int setup_vmcs_control(struct vcpu_context *vcpu,
+static int setup_vmcs_control(struct vcpu_context *vcpu,
 		       struct vmx_capability *cap)
 {
 	unsigned int vmx_pinbase = VMX_PINBASE_CTL_MIN;
@@ -867,25 +867,67 @@ static struct file_operations akvm_vcpu_ops = {
 	.release = akvm_vcpu_release,
 };
 
-int akvm_create_vcpu_fd(struct vcpu_context *vcpu, struct file *vm)
+static int akvm_init_vcpu(struct vcpu_context *vcpu)
 {
-	int fd;
-	struct file *file;
+	int r;
 
-	fd = get_unused_fd_flags(O_CLOEXEC);
-	if (fd < 0)
-		return fd;
+	r = alloc_vmcs(vcpu);
+	if (r)
+		return r;
+
+	prepare_vmcs(vcpu->vmcs.vmcs,
+		     vmx_region_size(&vmx_capability),
+		     vmx_vmcs_revision(&vmx_capability));
+
+	vcpu_load(vcpu);
+
+	r = setup_vmcs_control(vcpu, &vmx_capability);
+	if (r)
+		goto failed_put;
+
+	vcpu_put(vcpu, false);
+	return r;
+
+failed_put:
+	vcpu_put(vcpu, false);
+	free_vmcs(vcpu);
+	return r;
+}
+
+int akvm_create_vcpu(struct file *vm_file)
+{
+	int r;
+	struct file *file;
+	struct vcpu_context *vcpu;
+
+	vcpu = kzalloc(sizeof(*vcpu), GFP_KERNEL_ACCOUNT);
+	if (!vcpu)
+		return -ENOMEM;
+
+	r = akvm_init_vcpu(vcpu);
+	if (r)
+		goto failed_free;
+
+	r = get_unused_fd_flags(O_CLOEXEC);
+	if (r < 0)
+		goto failed_free;
 
 	file = anon_inode_getfile("akvm-vcpu", &akvm_vcpu_ops, vcpu, O_RDWR);
 	if (IS_ERR(file)) {
-		put_unused_fd(fd);
-		return PTR_ERR(file);
+		put_unused_fd(r);
+		r = PTR_ERR(file);
+		goto failed_free;
 	}
 
-	if (vm)
-		vcpu->vm_file = get_file(vm);
+	if (vm_file)
+		vcpu->vm_file = get_file(vm_file);
 
-	fd_install(fd, file);
-	pr_info("install fd:%d\n", fd);
-	return fd;
+	fd_install(r, file);
+	pr_info("install fd:%d\n", r);
+	return r;
+
+failed_free:
+	kfree(vcpu);
+	return r;
+
 }
