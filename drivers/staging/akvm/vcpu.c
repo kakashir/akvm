@@ -830,6 +830,7 @@ static int akvm_vcpu_open(struct inode *inode, struct file *file)
 static int akvm_vcpu_release(struct inode *inode, struct file *file)
 {
 	struct vcpu_context *vcpu = file->private_data;
+	vcpu_destroy_notifier vcpu_destroy_cb = vcpu->vm->vcpu_destroy_cb;
 
 	pr_info("%s\n", __func__);
 	if (vcpu->vm_file)
@@ -839,6 +840,8 @@ static int akvm_vcpu_release(struct inode *inode, struct file *file)
 	vcpu_load(vcpu);
 	vcpu_put(vcpu, true);
 	free_vmcs(vcpu);
+	if (vcpu_destroy_cb)
+		vcpu_destroy_cb(vcpu->vm, vcpu->index);
 	kfree(vcpu);
 
 	return 0;
@@ -894,7 +897,8 @@ failed_put:
 	return r;
 }
 
-int akvm_create_vcpu(struct file *vm_file)
+int akvm_create_vcpu(struct file *vm_file,
+		     struct vm_context *vm, int vcpu_index)
 {
 	int r;
 	struct file *file;
@@ -921,6 +925,8 @@ int akvm_create_vcpu(struct file *vm_file)
 
 	if (vm_file)
 		vcpu->vm_file = get_file(vm_file);
+	vcpu->index = vcpu_index;
+	vcpu->vm = vm;
 
 	fd_install(r, file);
 	pr_info("install fd:%d\n", r);
