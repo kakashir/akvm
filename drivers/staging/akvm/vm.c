@@ -29,7 +29,17 @@ static void akvm_vm_free_vcpu_index(struct vm_context *vm, int index)
 
 static void akvm_vcpu_destroy_callback(struct vm_context *vm, int vcpu_index)
 {
+	xa_erase(&vm->vcpus, vcpu_index);
 	akvm_vm_free_vcpu_index(vm, vcpu_index);
+}
+
+static int akvm_vcpu_create_callback(struct vm_context *vm, int vcpu_index,
+				     struct vcpu_context *vcpu)
+{
+	int r;
+
+	r = xa_err(xa_store(&vm->vcpus, vcpu_index, vcpu, GFP_KERNEL));
+	return r;
 }
 
 static int akvm_vm_open(struct inode *inode, struct file *file)
@@ -45,6 +55,9 @@ static int akvm_vm_release(struct inode *inode, struct file *file)
 	pr_info("%s\n", __func__);
 	if (vm->dev)
 		fput(vm->dev);
+
+	WARN_ON(!xa_empty(&vm->vcpus));
+	xa_destroy(&vm->vcpus);
 
 	WARN_ON(!ida_is_empty(&vm->vcpu_index_pool));
 	ida_destroy(&vm->vcpu_index_pool);
@@ -90,6 +103,9 @@ static int akvm_init_vm(struct vm_context *vm)
 {
 	ida_init(&vm->vcpu_index_pool);
 	mutex_init(&vm->lock);
+	xa_init(&vm->vcpus);
+
+	vm->vcpu_create_cb = akvm_vcpu_create_callback;
 	vm->vcpu_destroy_cb = akvm_vcpu_destroy_callback;
 
 	return 0;
