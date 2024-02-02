@@ -821,6 +821,14 @@ void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu)
 	__vcpu_put(vcpu, false);
 }
 
+static void akvm_deinit_vcpu(struct vcpu_context *vcpu)
+{
+	/* pair to flush vmcs  */
+	vcpu_load(vcpu);
+	vcpu_put(vcpu, true);
+	free_vmcs(vcpu);
+}
+
 static int akvm_vcpu_open(struct inode *inode, struct file *file)
 {
 	pr_info("%s\n", __func__);
@@ -831,19 +839,19 @@ static int akvm_vcpu_release(struct inode *inode, struct file *file)
 {
 	struct vcpu_context *vcpu = file->private_data;
 	vcpu_destroy_notifier vcpu_destroy_cb = vcpu->vm->vcpu_destroy_cb;
+	struct file *vm_file = vcpu->vm_file;
 
 	pr_info("%s\n", __func__);
-	if (vcpu->vm_file)
-		fput(vcpu->vm_file);
 
-	/* pair for vm_put() */
-	vcpu_load(vcpu);
-	vcpu_put(vcpu, true);
-	free_vmcs(vcpu);
+	akvm_deinit_vcpu(vcpu);
+
 	if (vcpu_destroy_cb)
 		vcpu_destroy_cb(vcpu->vm, vcpu->index);
+
 	kfree(vcpu);
 
+	if (vm_file)
+		fput(vm_file);
 	return 0;
 }
 
@@ -892,7 +900,7 @@ static int akvm_init_vcpu(struct vcpu_context *vcpu)
 	return r;
 
 failed_put:
-	vcpu_put(vcpu, false);
+	vcpu_put(vcpu, true);
 	free_vmcs(vcpu);
 	return r;
 }
@@ -901,8 +909,10 @@ int akvm_create_vcpu(struct file *vm_file,
 		     struct vm_context *vm, int vcpu_index)
 {
 	int r;
+	int fd;
 	struct file *file;
 	struct vcpu_context *vcpu;
+	vcpu_create_notifier vm_create_vcpu_cb = vm->vcpu_create_cb;
 
 	vcpu = kzalloc(sizeof(*vcpu), GFP_KERNEL_ACCOUNT);
 	if (!vcpu)
@@ -914,13 +924,19 @@ int akvm_create_vcpu(struct file *vm_file,
 
 	r = get_unused_fd_flags(O_CLOEXEC);
 	if (r < 0)
-		goto failed_free;
+		goto failed_deinit_vcpu;
 
 	file = anon_inode_getfile("akvm-vcpu", &akvm_vcpu_ops, vcpu, O_RDWR);
 	if (IS_ERR(file)) {
-		put_unused_fd(r);
 		r = PTR_ERR(file);
-		goto failed_free;
+		goto failed_fdput;
+	}
+
+	fd = r;
+	if (vm_create_vcpu_cb) {
+		r = vm_create_vcpu_cb(vm, vcpu_index, vcpu);
+		if (r)
+			goto failed_fput;
 	}
 
 	if (vm_file)
@@ -928,10 +944,16 @@ int akvm_create_vcpu(struct file *vm_file,
 	vcpu->index = vcpu_index;
 	vcpu->vm = vm;
 
-	fd_install(r, file);
-	pr_info("install fd:%d\n", r);
-	return r;
+	fd_install(fd, file);
+	pr_info("install fd:%d\n", fd);
+	return fd;
 
+failed_fput:
+	fput(file);
+failed_fdput:
+	put_unused_fd(fd);
+failed_deinit_vcpu:
+	akvm_deinit_vcpu(vcpu);
 failed_free:
 	kfree(vcpu);
 	return r;
