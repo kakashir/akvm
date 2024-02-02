@@ -15,6 +15,22 @@
 #include "vm.h"
 #include "vcpu.h"
 
+static int akvm_vm_alloc_vcpu_index(struct vm_context *vm)
+{
+	return ida_alloc_range(&vm->vcpu_index_pool,
+			       0, AKVM_MAX_VCPU_NUM - 1,
+			       GFP_KERNEL_ACCOUNT);
+}
+
+static void akvm_vm_free_vcpu_index(struct vm_context *vm, int index)
+{
+	ida_free(&vm->vcpu_index_pool, index);
+}
+
+static void akvm_vcpu_destroy_callback(struct vm_context *vm, int vcpu_index)
+{
+	akvm_vm_free_vcpu_index(vm, vcpu_index);
+}
 
 static int akvm_vm_open(struct inode *inode, struct file *file)
 {
@@ -29,6 +45,9 @@ static int akvm_vm_release(struct inode *inode, struct file *file)
 	pr_info("%s\n", __func__);
 	if (vm->dev)
 		fput(vm->dev);
+
+	WARN_ON(!ida_is_empty(&vm->vcpu_index_pool));
+	ida_destroy(&vm->vcpu_index_pool);
 	kfree(vm);
 
 	return 0;
@@ -37,9 +56,13 @@ static int akvm_vm_release(struct inode *inode, struct file *file)
 static int akvm_vm_ioctl_create_vcpu(struct file *f)
 {
 	int r;
+	struct vm_context *vm = f->private_data;
 
-	r = akvm_create_vcpu(f);
+	r = akvm_vm_alloc_vcpu_index(vm);
+	if (r < 0)
+		return r;
 
+	r = akvm_create_vcpu(f, vm, r);
 	return r;
 }
 
@@ -63,9 +86,18 @@ static struct file_operations akvm_vm_ops = {
 	.release = akvm_vm_release,
 };
 
+static int akvm_init_vm(struct vm_context *vm)
+{
+	ida_init(&vm->vcpu_index_pool);
+	mutex_init(&vm->lock);
+	vm->vcpu_destroy_cb = akvm_vcpu_destroy_callback;
+
+	return 0;
+}
+
 int akvm_create_vm(struct file *dev)
 {
-	int fd;
+	int r;
 	struct vm_context *vm;
 	struct file *file;
 
@@ -73,25 +105,29 @@ int akvm_create_vm(struct file *dev)
 	if (!vm)
 		return -ENOMEM;
 
-	fd = get_unused_fd_flags(O_CLOEXEC);
-	if (fd < 0)
+	r = akvm_init_vm(vm);
+	if (r)
+		goto failed_free;
+
+	r = get_unused_fd_flags(O_CLOEXEC);
+	if (r < 0)
 		goto failed_free;
 
 	file = anon_inode_getfile("akvm-vm", &akvm_vm_ops,  vm, O_RDWR);
 	if (IS_ERR(file)) {
-		put_unused_fd(fd);
-		fd = PTR_ERR(file);
+		put_unused_fd(r);
+		r = PTR_ERR(file);
 		goto failed_free;
 	}
 
 	if (dev)
 		vm->dev = get_file(dev);
 
-	fd_install(fd, file);
-	pr_info("install fd:%d\n", fd);
-	return fd;
+	fd_install(r, file);
+	pr_info("install fd:%d\n", r);
+	return r;
 
 failed_free:
 	kfree(vm);
-	return fd;
+	return r;
 }

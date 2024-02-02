@@ -6,6 +6,7 @@
 #include <linux/mm.h>
 
 #include "common.h"
+#include "vm.h"
 
 enum gpr_context_id {
 	GPR_RAX = 0,
@@ -91,9 +92,13 @@ struct vcpu_context {
 
 	struct preempt_notifier preempt_notifier;
 	struct file *vm_file;
+	struct vm_context *vm;
+	int index;
+
 };
 
-int akvm_create_vcpu(struct file *vm_file);
+int akvm_create_vcpu(struct file *vm_file,
+		     struct vm_context *vm, int vcpu_index);
 void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu);
 void akvm_vcpu_sched_out(struct preempt_notifier *pn,
 			 struct task_struct *next);

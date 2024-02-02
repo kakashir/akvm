@@ -12,6 +12,8 @@
 #include <linux/ioctl.h>
 #include <asm/kvm.h>
 
+#define AKVM_MAX_VCPU_NUM 128
+
 #define AKVMIO 0xCC
 
 #define AKVM_RUN		_IO(AKVMIO,   0x00)
