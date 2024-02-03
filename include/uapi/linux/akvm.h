@@ -27,4 +27,16 @@ struct akvm_vmx_info {
 #define AKVM_CREATE_VM   _IO(AKVMIO,   0x02)
 #define AKVM_CREATE_VCPU _IO(AKVMIO,   0x03)
 
+struct akvm_memory_slot {
+	__u64 hva;
+	__u64 gpa;
+	__u64 size;
+	__u64 flags;
+};
+#define AKVM_MEMORY_SLOT_ADD _IOR(AKVMIO, 0x4, struct akvm_memory_slot)
+#define AKVM_MEMORY_SLOT_REMOVE _IOR(AKVMIO, 0x5, struct akvm_memory_slot)
+
+/* hva/gpa/size need aligning on this value */
+#define AKVM_MEMORY_SLOT_ALIGN 4096
+
 #endif /* __LINUX_AKVM_H */
