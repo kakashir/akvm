@@ -96,6 +96,7 @@ struct vcpu_context {
 	struct vm_host_state host_state;
 	struct vm_guest_state guest_state;
 
+	struct mutex ioctl_lock;
 	struct preempt_notifier preempt_notifier;
 	struct file *vm_file;
 	struct vm_context *vm;
