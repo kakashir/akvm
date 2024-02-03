@@ -660,6 +660,18 @@ void akvm_vcpu_kick(struct vcpu_context *vcpu)
 				 __vcpu_ipi_kicker, NULL, 1);
 }
 
+void akvm_vcpu_set_request(struct vcpu_context *vcpu, unsigned long request,
+			   bool urgent)
+{
+	set_bit(request, &vcpu->requests);
+
+	/* pair with test_and_clear_bit() in  akvm_vcpu_check_request() */
+	smp_wmb();
+
+	if (urgent)
+		akvm_vcpu_kick(vcpu);
+}
+
 asmlinkage unsigned long
 __akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
 		int launched);
@@ -748,6 +760,22 @@ static int handle_vm_exit_irqoff(struct vcpu_context *vcpu)
 	}
 }
 
+static int akvm_handle_vcpu_request_flush_tlb(struct vcpu_context *vcpu)
+{
+	pr_err("%s: not implemented yet.\n", __func__);
+	return -EIO;
+}
+
+static int akvm_vcpu_handle_requests(struct vcpu_context *vcpu)
+{
+	int r = 0;
+
+	if (test_and_clear_bit(AKVM_VCPU_REQUEST_FLUSH_TLB, &vcpu->requests))
+		r = akvm_handle_vcpu_request_flush_tlb(vcpu);
+
+	return r;
+}
+
 static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 {
 	unsigned long flags;
@@ -768,6 +796,10 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 
 		if (need_resched())
 			cond_resched();
+
+		r = akvm_vcpu_handle_requests(vcpu);
+		if (r)
+			break;
 
 		preempt_disable();
 		local_irq_save(flags);

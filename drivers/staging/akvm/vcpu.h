@@ -80,6 +80,8 @@ struct vm_vmcs {
 	int last_cpu;
 };
 
+#define AKVM_VCPU_REQUEST_FLUSH_TLB 0
+
 struct vcpu_context {
 	struct vm_vmcs vmcs;
 
@@ -103,11 +105,14 @@ struct vcpu_context {
 
 	int index;
 	atomic_t run_state;
+	unsigned long requests;
 };
 
 int akvm_create_vcpu(struct file *vm_file,
 		     struct vm_context *vm, int vcpu_index);
 void akvm_vcpu_kick(struct vcpu_context *vcpu);
+void akvm_vcpu_set_request(struct vcpu_context *vcpu, unsigned long request,
+			   bool urgent);
 void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu);
 void akvm_vcpu_sched_out(struct preempt_notifier *pn,
 			 struct task_struct *next);
