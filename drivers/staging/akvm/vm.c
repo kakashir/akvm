@@ -107,6 +107,7 @@ static struct file_operations akvm_vm_ops = {
 	.unlocked_ioctl = akvm_vm_ioctl,
 	.llseek = noop_llseek,
 	.release = akvm_vm_release,
+	.owner = THIS_MODULE,
 };
 
 static int akvm_init_vm(struct vm_context *vm)
