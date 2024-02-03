@@ -627,6 +627,39 @@ static void load_guest_state(struct vm_guest_state *state)
 	write_cr8(state->cr8);
 }
 
+static void __vcpu_ipi_kicker(void *unused)
+{
+	return;
+}
+
+void akvm_vcpu_kick(struct vcpu_context *vcpu)
+{
+	int old;
+
+	/*
+	  only "sync" vcpu_put(vcpu, true) set this to -1, it's rare and
+	  happen only when deinit the vcpu, so check w/o lock
+	  should be ok here
+	 */
+	if (vcpu->vmcs.last_cpu == -1)
+		return;
+
+	/*
+	  set to leave_guest successfully so the next vm_enter will
+	  be skipped, thus don't need the ipi kicker
+	*/
+	old = set_run_state(vcpu, VCPU_IN_HOST, VCPU_LEAVE_GUEST);
+	if (old == VCPU_IN_HOST)
+		return;
+
+	/* already in "host" thus the ipi kicker can be skipped */
+	if (old == VCPU_LEAVE_GUEST)
+		return;
+
+	smp_call_function_single(vcpu->vmcs.last_cpu,
+				 __vcpu_ipi_kicker, NULL, 1);
+}
+
 asmlinkage unsigned long
 __akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
 		int launched);
@@ -634,6 +667,8 @@ __akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
 static int vm_enter_exit(struct vcpu_context *vcpu)
 {
 	unsigned long r;
+
+	set_run_state_in_guest(vcpu);
 
 	r = __akvm_vcpu_run(&vcpu->host_state, &vcpu->guest_state,
 			    vcpu->vmcs.launched);
@@ -717,28 +752,11 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 {
 	struct vcpu_context *vcpu = f->private_data;
 	unsigned long flags;
-	long count = 100000;
 	int r;
 
 	if (!vcpu)
 		return -EINVAL;
 
-	/*
-	  prepare VMCS and sub struct
-		alloc vmcs and sub struct
-	  PREEMPTION_DISABLE()
-	  VMX ON
-		setup exec/vmetnry/vmexit control fields
-	  load vmcs
-	  prepare host state
-	  prepare guest state
-	  vmlaunch
-
-	  vmcs clear
-	  free vmcs
-	  VMX OFF
-	  PREEMPTION_ENABLE()
-	 */
 	vcpu_load(vcpu);
 
 	r = setup_vmcs_host_state(vcpu);
@@ -746,9 +764,26 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		goto exit;
 	setup_ept_root(vcpu, &vmx_capability);
 
-	while(count-- > 0 && !r) {
+	while(!r) {
+		if (signal_pending(current)) {
+			r = 1;
+			break;
+		}
+
+		if (need_resched())
+			cond_resched();
+
 		preempt_disable();
 		local_irq_save(flags);
+
+		/*
+		  kick vcpu set state to leave_guest to request
+		  out of this run loop for i.e. event handling.
+		*/
+		if (!set_run_state_enter_guest(vcpu)) {
+			r = 1;
+			goto irq_enable;
+		}
 
 		save_host_state(&vcpu->host_state);
 		load_guest_state(&vcpu->guest_state);
@@ -758,11 +793,15 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		save_guest_state(&vcpu->guest_state);
 		load_host_state(&vcpu->host_state);
 
+		set_run_state_leave_guest(vcpu);
+
 		if (!r && !vcpu->exit.failed)
 			handle_vm_exit_irqoff(vcpu);
-
+irq_enable:
 		local_irq_restore(flags);
 		preempt_enable();
+
+		set_run_state_in_host(vcpu);
 
 		if (!r && !vcpu->exit.failed)
 			r = handle_vm_exit(vcpu);
