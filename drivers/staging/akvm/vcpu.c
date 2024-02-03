@@ -868,6 +868,7 @@ static struct file_operations akvm_vcpu_ops = {
 	.unlocked_ioctl = akvm_vcpu_ioctl,
 	.llseek = noop_llseek,
 	.release = akvm_vcpu_release,
+	.owner = THIS_MODULE,
 };
 
 static int akvm_init_vcpu(struct vcpu_context *vcpu)

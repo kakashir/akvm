@@ -204,6 +204,7 @@ static int akvm_dev_release(struct inode *inode, struct file *file)
 {
 	pr_info("%s\n", __func__);
 	akvm_hardware_disable();
+
 	return 0;
 }
 
@@ -242,6 +243,7 @@ static struct file_operations akvm_dev_ops = {
 	.unlocked_ioctl = akvm_dev_ioctl,
 	.llseek = noop_llseek,
 	.release = akvm_dev_release,
+	.owner = THIS_MODULE,
 };
 
 static struct miscdevice akvm_dev = {
