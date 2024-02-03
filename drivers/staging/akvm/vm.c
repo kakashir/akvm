@@ -212,6 +212,20 @@ static int akvm_vm_update_memory_space(struct vm_context *vm,
 	return r;
 }
 
+static int akvm_vm_sanity_check_memory_slot(struct vm_memory_slot *slot)
+{
+	if (slot->flags)
+		return -EINVAL;
+
+	if (!IS_ALIGNED(slot->gpa, AKVM_MEMORY_SLOT_ALIGN))
+		return -EINVAL;
+
+	if (!IS_ALIGNED(slot->size, AKVM_MEMORY_SLOT_ALIGN))
+		return -EINVAL;
+
+	return 0;
+}
+
 static int akvm_vm_ioctl_add_memory_slot(struct vm_context *vm,
 					 struct akvm_memory_slot __user *u_slot)
 {
@@ -222,14 +236,15 @@ static int akvm_vm_ioctl_add_memory_slot(struct vm_context *vm,
 	if (r)
 		return r;
 
-	if (!IS_ALIGNED(slot.gpa, AKVM_MEMORY_SLOT_ALIGN))
+	if (!slot.hva)
 		return -EINVAL;
 
-	if (!IS_ALIGNED(slot.size, AKVM_MEMORY_SLOT_ALIGN))
+	if (!IS_ALIGNED(slot.hva, AKVM_MEMORY_SLOT_ALIGN))
 		return -EINVAL;
 
-	if (slot.flags)
-		return -EINVAL;
+	r = akvm_vm_sanity_check_memory_slot(&slot);
+	if (r)
+		return r;
 
 	mutex_lock(&vm->lock);
 
@@ -248,6 +263,34 @@ static int akvm_vm_ioctl_add_memory_slot(struct vm_context *vm,
 	return r;
 }
 
+static int akvm_vm_ioctl_remove_memory_slot(struct vm_context *vm,
+					    struct akvm_memory_slot __user *u_slot)
+{
+	int r;
+	struct vm_memory_slot slot;
+
+	r = akvm_vm_init_memory_slot(&slot, u_slot);
+	if (r)
+		return r;
+	r = akvm_vm_sanity_check_memory_slot(&slot);
+	if (r)
+		return r;
+
+	mutex_lock(&vm->lock);
+
+	if (!vm->memory) {
+		mutex_unlock(&vm->lock);
+		return -EINVAL;
+	}
+
+	if (akvm_vm_check_memory_slot_overlap(vm->memory, &slot, true))
+		r = akvm_vm_update_memory_space(vm, &slot, true);
+	else
+		r = -EINVAL;
+
+	mutex_unlock(&vm->lock);
+	return r;
+}
 
 static int akvm_vm_open(struct inode *inode, struct file *file)
 {
@@ -297,6 +340,8 @@ static long akvm_vm_ioctl(struct file *f, unsigned int ioctl,
 		return akvm_vm_ioctl_create_vcpu(f);
 	case AKVM_MEMORY_SLOT_ADD:
 		return akvm_vm_ioctl_add_memory_slot(vm, (void*)param);
+	case AKVM_MEMORY_SLOT_REMOVE:
+		return akvm_vm_ioctl_remove_memory_slot(vm, (void*)param);
 	default:
 		return -EINVAL;
 	}
