@@ -748,14 +748,10 @@ static int handle_vm_exit_irqoff(struct vcpu_context *vcpu)
 	}
 }
 
-static int akvm_ioctl_run(struct file *f, unsigned long param)
+static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 {
-	struct vcpu_context *vcpu = f->private_data;
 	unsigned long flags;
 	int r;
-
-	if (!vcpu)
-		return -EINVAL;
 
 	vcpu_load(vcpu);
 
@@ -838,7 +834,7 @@ void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu)
 	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_ESP, val);
 }
 
- void akvm_vcpu_sched_out(struct preempt_notifier *pn,
+void akvm_vcpu_sched_out(struct preempt_notifier *pn,
 			  struct task_struct *next)
 {
 	struct vcpu_context *vcpu =
@@ -885,14 +881,22 @@ static long akvm_vcpu_ioctl(struct file *f, unsigned int ioctl,
 			  unsigned long param)
 {
 	int r = 0;
+	struct vcpu_context *vcpu = f->private_data;
+
+	if (!vcpu)
+		return -EINVAL;
+
+	mutex_lock(&vcpu->ioctl_lock);
 
 	switch(ioctl) {
 	case AKVM_RUN:
-		r = akvm_ioctl_run(f, param);
+		r = akvm_ioctl_run(vcpu, param);
 		break;
 	default:
 		r = -EINVAL;
 	}
+
+	mutex_unlock(&vcpu->ioctl_lock);
 
 	return r;
 }
@@ -925,6 +929,8 @@ static int akvm_init_vcpu(struct vcpu_context *vcpu)
 	setup_vmcs_guest_state(vcpu, &vmx_capability);
 
 	vcpu_put(vcpu, false);
+
+	mutex_init(&vcpu->ioctl_lock);
 	return r;
 
 failed_put:
