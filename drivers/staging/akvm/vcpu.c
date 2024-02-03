@@ -325,8 +325,8 @@ static void setup_ept_root(struct vcpu_context *vcpu, struct vmx_capability *cap
 	akvm_pr_info("ept_root: 0x%lx\n", ept_val);
 }
 
-static int setup_vmcs_guest_state(struct vcpu_context *vcpu,
-				  struct vmx_capability *cap)
+static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
+				   struct vmx_capability *cap)
 {
 	unsigned long val;
 	struct vmx_segment code_seg = {0};
@@ -558,7 +558,6 @@ static int setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	val = -1ULL;
 	vmcs_write_64(VMX_GUEST_VMCS_LINK_POINTER, val);
 	akvm_pr_info("guest vmcs link pointer: 0x%lx\n", val);
-	return 0;
 }
 
 static void save_host_state(struct vm_host_state *state)
@@ -747,10 +746,6 @@ static int akvm_ioctl_run(struct file *f, unsigned long param)
 		goto exit;
 	setup_ept_root(vcpu, &vmx_capability);
 
-	r = setup_vmcs_guest_state(vcpu, &vmx_capability);
-	if (r)
-		goto exit;
-
 	while(count-- > 0 && !r) {
 		preempt_disable();
 		local_irq_save(flags);
@@ -888,6 +883,7 @@ static int akvm_init_vcpu(struct vcpu_context *vcpu)
 	r = setup_vmcs_control(vcpu, &vmx_capability);
 	if (r)
 		goto failed_put;
+	setup_vmcs_guest_state(vcpu, &vmx_capability);
 
 	vcpu_put(vcpu, false);
 	return r;
