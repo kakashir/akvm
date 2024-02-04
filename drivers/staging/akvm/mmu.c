@@ -57,6 +57,11 @@ struct akvm_mmu_page {
 	struct list_head entry;
 };
 
+struct akvm_data_page {
+	struct list_head entry;
+	struct page *page;
+};
+
 static inline spte* __spte_by_level(spte *p, gpa addr, enum akvm_page_level level)
 {
 	int index = AKVM_SPTE_INDEX(addr, level);
@@ -289,24 +294,35 @@ static int akvm_mmu_install_data_page(struct mmu_context *mmu,
 	unsigned long hva;
 	struct page *page;
 	struct vm_memory_slot *slot;
+	struct akvm_data_page *data_page;
+
+	data_page = kzalloc(sizeof(*data_page), GFP_KERNEL_ACCOUNT);
+	INIT_LIST_HEAD(&data_page->entry);
 
 	r =  akvm_vm_gpa_to_memory_slot(mmu->vm,
 					walker->cur_gpa,
 					walker->cur_gpa + PAGE_SIZE,
 					&slot);
 	if (r)
-		return r;
+		goto free_data_page_struct;
 
 	hva = slot->hva + walker->target_gpa - slot->gpa;
 	r = akvm_mmu_hva_to_page(hva, &page);
 	if (r)
-		return r;
+		goto free_data_page_struct;
 
 	new_spte = spte_init(__pa(page_address(page)), AKVM_SPTE_PERM, true);
 	*walker->cur_sptep = new_spte;
 
-	akvm_mmu_put_page(page);
+	data_page->page = page;
+	list_add(&data_page->entry, &mmu->data_page_list);
+	/* pin the page */
+	// akvm_mmu_put_page(page);
 
+	return r;
+
+free_data_page_struct:
+	kfree(data_page);
 	return r;
 }
 
@@ -386,6 +402,7 @@ int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level)
 	mmu->vm = vm;
 	mmu->level = level;
 	INIT_LIST_HEAD(&mmu->page_list);
+	INIT_LIST_HEAD(&mmu->data_page_list);
 	rwlock_init(&mmu->lock);
 
 	return 0;
@@ -395,8 +412,17 @@ void akvm_deinit_mmu(struct mmu_context *mmu)
 {
 	struct akvm_mmu_page *cur;
 	struct akvm_mmu_page *tmp;
+	struct akvm_data_page *cur_data;
+	struct akvm_data_page *tmp_data;
 
 	list_for_each_entry_safe(cur, tmp, &mmu->page_list, entry)
 		akvm_mmu_destroy_mmu_page(cur);
+
+	list_for_each_entry_safe(cur_data, tmp_data, &mmu->data_page_list,
+				 entry) {
+		akvm_mmu_put_page(cur_data->page);
+		kfree(cur_data);
+	}
+
 	free_page(mmu->root);
 }
