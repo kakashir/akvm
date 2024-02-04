@@ -85,7 +85,7 @@ static void akvm_deinit_vm(struct vm_context *vm)
 	ida_destroy(&vm->vcpu_index_pool);
 
 	/* free_page takes care NULL ptr */
-	free_page(vm->ept_root);
+	akvm_deinit_mmu(&vm->mmu);
 	cleanup_srcu_struct(&vm->srcu);
 
 	akvm_vm_destroy_memory_space(vm->memory);
@@ -359,9 +359,11 @@ static struct file_operations akvm_vm_ops = {
 
 static int akvm_init_vm(struct vm_context *vm)
 {
-	vm->ept_root = __get_free_page(GFP_KERNEL_ACCOUNT);
-	if (!vm->ept_root)
-		return -ENOMEM;
+	int r;
+
+	r = akvm_init_mmu(&vm->mmu, vm, vmx_ept_level(&vmx_capability));
+	if (r)
+		return r;
 
 	ida_init(&vm->vcpu_index_pool);
 	mutex_init(&vm->lock);

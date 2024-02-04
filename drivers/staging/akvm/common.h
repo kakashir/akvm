@@ -20,4 +20,9 @@ struct vmcs_list {
 };
 DECLARE_PER_CPU(struct vmcs_list, vmcs_list);
 
+typedef unsigned long gpa;
+typedef unsigned long gfn;
+typedef unsigned long hpa;
+typedef unsigned long hfn;
+
 #endif

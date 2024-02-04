@@ -7,6 +7,7 @@
 #include <linux/interval_tree.h>
 #include <linux/list.h>
 #include "common.h"
+#include "mmu.h"
 
 struct vcpu_context;
 struct vm_context;
@@ -39,8 +40,8 @@ struct vm_context {
 	struct srcu_struct srcu;
 	struct ida vcpu_index_pool;
 	struct xarray vcpus;
-	unsigned long ept_root;
 
+	struct mmu_context mmu;
 	struct vm_memory_space __rcu *memory;
 
 	vcpu_create_notifier vcpu_create_cb;
