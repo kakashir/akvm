@@ -137,7 +137,8 @@ union vmx_exit_reason {
 	int val;
 };
 #define VMX_EXIT_EXCEP_NMI  0
-#define	VMX_EXIT_INTR  1
+#define VMX_EXIT_INTR  1
+#define VMX_EXIT_EPT_VIOLATION 48
 
 union vmx_intr_info {
 	struct {
@@ -166,6 +167,8 @@ enum vmcs_filed_id {
 	VMX_EXIT_REASON = 0x4402,
 	VMX_EXIT_INTR_INFO = 0x4404,
 	VMX_EXIT_INTR_ERROR_CODE = 0x4406,
+	VMX_EXIT_GPA = 0x2400,
+	VMX_EXIT_GPA_HIGH = 0x2401,
 
 	VMX_PINBASE_CTL = 0x4000,
 	VMX_PROCBASE_CTL = 0x4002,

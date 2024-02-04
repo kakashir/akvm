@@ -718,10 +718,30 @@ static int vm_enter_exit(struct vcpu_context *vcpu)
 	return r;
 }
 
+static int do_ept_violation(struct vcpu_context *vcpu)
+{
+	gpa fault_addr = vmcs_read_64(VMX_EXIT_GPA);
+
+	return akvm_handle_mmu_page_fault(vcpu, &vcpu->vm->mmu, fault_addr);
+};
+
 static int handle_vm_exit(struct vcpu_context *vcpu)
 {
-	akvm_pr_info("exit_reason: 0x%x\n", vcpu->exit.val);
-	return 0;
+	switch (vcpu->exit.reason) {
+	/*
+	  current ignore due to irqoff handler already
+	  called host handler
+	*/
+	case VMX_EXIT_EXCEP_NMI:
+		fallthrough;
+	case VMX_EXIT_INTR:
+		return 0;
+	case VMX_EXIT_EPT_VIOLATION:
+		return do_ept_violation(vcpu);
+	default:
+		pr_err("unimplemented vmexit: %d\n", vcpu->exit.reason);
+		return -ENOTSUPP;
+	}
 }
 
 extern void __akvm_call_host_intr(unsigned long);
