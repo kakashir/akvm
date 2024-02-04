@@ -6,12 +6,15 @@
 
 #include "common.h"
 
+#define AKVM_MMU_MAX_LEVEL (5)
+
 struct vcpu_context;
 struct vm_context;
 
 struct mmu_context {
 	struct vm_context *vm;
 
+	rwlock_t lock;
 	struct list_head page_list;
 	unsigned long root;
 	int level;
