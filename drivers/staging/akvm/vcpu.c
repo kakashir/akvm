@@ -308,7 +308,7 @@ static void setup_ept_root(struct vcpu_context *vcpu,
 			   struct vmx_capability *cap)
 {
 	unsigned long ept_val;
-	unsigned long ept_root = vcpu->vm->ept_root;
+	unsigned long ept_root = akvm_mmu_root_page(&vcpu->vm->mmu);
 
 	if (!ept_root) {
 		akvm_pr_info("ept_root: skip due to no ept_root page\n");
