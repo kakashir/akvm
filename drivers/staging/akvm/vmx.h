@@ -86,6 +86,21 @@ static inline bool vmx_ept_ad_bit(struct vmx_capability *vmx_cap)
 	return !!(vmx_cap->msr_ept_vpid & BIT(21));
 }
 
+static inline bool vmx_ept_invept_supported(struct vmx_capability *vmx_cap)
+{
+	return !!(vmx_cap->msr_ept_vpid & BIT(20));
+}
+
+static inline bool vmx_ept_invept_single_context(struct vmx_capability *vmx_cap)
+{
+	return !!(vmx_cap->msr_ept_vpid & BIT(25));
+}
+
+static inline bool vmx_ept_invept_all_context(struct vmx_capability *vmx_cap)
+{
+	return !!(vmx_cap->msr_ept_vpid & BIT(26));
+}
+
 struct vmx_region {
 	u32 revision:31;
 };
@@ -333,6 +348,30 @@ VMCS_WRITE(16)
 VMCS_WRITE(32)
 VMCS_WRITE(64)
 VMCS_WRITE(natural)
+
+static inline int invept(unsigned long ept_root)
+{
+	unsigned long type = ept_root ? 1 : 2;
+	unsigned long inv_desc[2] = {ept_root, 0};
+
+	asm_volatile_goto("1: invept %0, %1\n\t"
+			  "jz %l[fail]\n\t"
+			  "jc %l[failinvalid]\n\t"
+			  _ASM_EXTABLE(1b, %l[fault])
+			  ::"m"(inv_desc), "q"(type)
+			  ::fault, fail, failinvalid);
+	return 0;
+ fault:
+	pr_err("%s() fault: ept_root:0x%lx\n", __func__, inv_desc[0]);
+	return -EINVAL;
+ fail:
+	pr_err("%s() VMfailed: ept_root:0x%lx\n", __func__, inv_desc[0]);
+	return -EINVAL;
+ failinvalid:
+	pr_err("%s() VMfailedInvalid: ept_root:0x%lx\n",
+	       __func__, inv_desc[0]);
+	return -EINVAL;
+}
 
 /* VMX control bit definition */
 #define VMX_PINBASE_EXTERNAL_INTERRUPT_EXIT BIT(0)

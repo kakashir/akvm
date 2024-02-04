@@ -304,7 +304,8 @@ static int setup_vmcs_host_state(struct vcpu_context *vcpu)
 	return 0;
 }
 
-static void setup_ept_root(struct vcpu_context *vcpu, struct vmx_capability *cap)
+static void setup_ept_root(struct vcpu_context *vcpu,
+			   struct vmx_capability *cap)
 {
 	unsigned long ept_val;
 	unsigned long ept_root = vcpu->vm->ept_root;
@@ -322,6 +323,7 @@ static void setup_ept_root(struct vcpu_context *vcpu, struct vmx_capability *cap
 	if (vmx_ept_ad_bit(cap))
 		ept_val |= VMX_EPT_ENABLE_AD_BITS;
 
+	vcpu->ept_root_cached = ept_val;
 	vmcs_write_64(VMX_EPTP_POINTER, ept_val);
 	akvm_pr_info("ept_root: 0x%lx\n", ept_val);
 }
@@ -770,11 +772,20 @@ static int handle_vm_exit_irqoff(struct vcpu_context *vcpu)
 
 static int akvm_handle_vcpu_request_flush_tlb(struct vcpu_context *vcpu)
 {
-	pr_err("%s: not implemented yet.\n", __func__);
-	return -EIO;
+	if (vmx_ept_invept_single_context(&vmx_capability))
+		return invept(vcpu->ept_root_cached);
+	else
+		return invept(0);
 }
 
 static int akvm_vcpu_handle_requests(struct vcpu_context *vcpu)
+{
+	int r = 0;
+
+	return r;
+}
+
+static int akvm_vcpu_handle_requests_irqoff(struct vcpu_context *vcpu)
 {
 	int r = 0;
 
@@ -820,6 +831,10 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 			r = 1;
 			goto irq_enable;
 		}
+
+		r = akvm_vcpu_handle_requests_irqoff(vcpu);
+		if (r)
+			goto irq_enable;
 
 		save_host_state(&vcpu->host_state);
 		load_guest_state(&vcpu->guest_state);
