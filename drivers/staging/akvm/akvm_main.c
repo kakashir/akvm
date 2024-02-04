@@ -111,8 +111,10 @@ static void vmx_off_cpu(void *info)
 {
 	struct vmx_region *region = this_cpu_read(vmx_region);
 
-	if (region)
+	if (region) {
+		invept(0);
 		vmx_off();
+	}
 }
 
 static int vmx_on_all(void)
@@ -123,6 +125,8 @@ static int vmx_on_all(void)
 
 	if (atomic_read(&r))
 		return -EFAULT;
+	else
+		invept(0);
 	return 0;
 }
 

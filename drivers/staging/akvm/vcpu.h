@@ -106,6 +106,7 @@ struct vcpu_context {
 	int index;
 	atomic_t run_state;
 	unsigned long requests;
+	unsigned long ept_root_cached;
 };
 
 int akvm_create_vcpu(struct file *vm_file,
@@ -146,9 +147,7 @@ static inline void set_run_state_leave_guest(struct vcpu_context *vcpu)
 
 static inline void set_run_state_in_host(struct vcpu_context *vcpu)
 {
-	int old = set_run_state(vcpu, VCPU_LEAVE_GUEST, VCPU_IN_HOST);
-
-	WARN_ON(old != VCPU_LEAVE_GUEST);
+	atomic_set(&vcpu->run_state, VCPU_IN_HOST);
 }
 
 #endif
