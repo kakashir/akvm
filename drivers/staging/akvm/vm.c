@@ -14,6 +14,7 @@
 #include "common.h"
 #include "vm.h"
 #include "vcpu.h"
+#include "mmu.h"
 
 static int akvm_vm_alloc_vcpu_index(struct vm_context *vm)
 {
@@ -416,4 +417,30 @@ failed_deinit:
 failed_free:
 	kfree(vm);
 	return r;
+}
+
+int akvm_vm_gpa_to_memory_slot(struct vm_context *vm, gpa gpa_addr, gpa gpa_end,
+			       struct vm_memory_slot **slot)
+{
+	struct interval_tree_node *search;
+	struct rb_root_cached *root;
+	gpa start = gpa_addr;
+	gpa last = gpa_end - 1;
+
+	if (!vm->memory)
+		return -EINVAL;
+
+	root = &vm->memory->root[VM_MEM_ROOT_GPA];
+	if (!root)
+		return -EINVAL;
+
+	for (search = interval_tree_iter_first(root, start, last); search;
+	     search = interval_tree_iter_next(search, start, last)) {
+		if (slot)
+			*slot = container_of(search, struct vm_memory_slot,
+					     node[VM_MEM_ROOT_GPA]);
+		return 0;
+	}
+
+	return -EINVAL;
 }

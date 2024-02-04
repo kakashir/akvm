@@ -49,5 +49,7 @@ struct vm_context {
 };
 
 int akvm_create_vm(struct file *dev);
-
+int akvm_vm_gpa_to_memory_slot(struct vm_context *vm,
+			       gpa gpa_addr, gpa gpa_end,
+			       struct vm_memory_slot **slot);
 #endif

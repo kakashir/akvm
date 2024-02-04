@@ -5,6 +5,8 @@
 #include <linux/bitops.h>
 #include <linux/mm.h>
 
+#include "common.h"
+
 struct vmx_capability {
 	u64 msr_vmx_basic;
 	u64 msr_vmx_misc;
@@ -497,6 +499,28 @@ static inline void vmx_get_cr_fix_bit(int msr_fixed0, int msr_fixed1,
 { \
 	(val) &= ~(fixed0);			\
 	(val) |= (fixed1);			\
+}
+
+#define VMX_EPT_PTE_PERM_READ  BIT_ULL(0)
+#define VMX_EPT_PTE_PERM_WRITE BIT_ULL(1)
+#define VMX_EPT_PTE_PERM_EXE BIT_ULL(2)
+#define VMX_EPT_PTE_LARGE_PAGE BIT_ULL(7)
+#define VMX_EPT_PTE_MEM_TYPE_WB (6ULL << 3)
+#define VMX_EPT_PTE_MEM_TYPE_UC (0ULL << 3)
+#define VMX_EPT_PTE_PAGE_SHIFT 12
+
+#define VMX_EPT_PTE_PRESENT (VMX_EPT_PTE_PERM_READ | \
+			     VMX_EPT_PTE_PERM_WRITE | \
+			     VMX_EPT_PTE_PERM_EXE)
+
+static inline bool vmx_ept_pte_present(unsigned long val)
+{
+	return !!(val & VMX_EPT_PTE_PRESENT);
+}
+
+static inline bool vmx_ept_pte_large_page(unsigned long val)
+{
+	return !!(val & VMX_EPT_PTE_LARGE_PAGE);
 }
 
 #endif
