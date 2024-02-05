@@ -10,6 +10,7 @@
 #include <asm/msr-index.h>
 #include <asm/cpu_entry_area.h>
 #include <asm/idtentry.h>
+#include <asm/desc.h>
 
 #include "common.h"
 #include "vcpu.h"
@@ -595,6 +596,13 @@ static void save_host_state(struct vm_host_state *state)
 			continue;
 		state->dr[i] = read_dr(i);
 	}
+
+	/* update "per cpu" context below, part refer virt/kvm/kvm_main.c */
+	vmcs_write_natural(VMX_HOST_FS_BASE, get_fsbase());
+	akvm_pr_info("fsbase: 0x%lx\n", get_fsbase());
+
+	vmcs_write_natural(VMX_HOST_GS_BASE, get_gsbase());
+	akvm_pr_info("gsbase: 0x%lx\n", get_gsbase());
 }
 
 static void load_host_state(struct vm_host_state *state)
@@ -844,26 +852,19 @@ void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu)
 {
 	struct vcpu_context *vcpu =
 		container_of(pn, struct vcpu_context, preempt_notifier);
-	struct gdt_idt_table_desc gdt_desc;
-	unsigned long val;
 
 	__vcpu_load(vcpu);
 
 	/* update "per cpu" context below, part refer virt/kvm/kvm_main.c */
-
-	vmcs_write_natural(VMX_HOST_FS_BASE, get_fsbase());
-	akvm_pr_info("fsbase: 0x%lx\n", get_fsbase());
-
-	vmcs_write_natural(VMX_HOST_GS_BASE, get_gsbase());
-	akvm_pr_info("gsbase: 0x%lx\n", get_gsbase());
-
 	vmcs_write_natural(VMX_HOST_TR_BASE,
 			   (unsigned long)&get_cpu_entry_area(cpu)->tss.x86_tss);
-	get_gdt_table_desc(&gdt_desc);
-	vmcs_write_natural(VMX_HOST_GDT_BASE, gdt_desc.base);
+	vmcs_write_natural(VMX_HOST_GDT_BASE, (unsigned long)get_cpu_gdt_ro(cpu));
 
-	rdmsrl(MSR_IA32_SYSENTER_ESP, val);
-	vmcs_write_natural(VMX_HOST_IA32_SYSENTER_ESP, val);
+	if (IS_ENABLED(CONFIG_IA32_EMULATION) || IS_ENABLED(CONFIG_X86_32))
+		vmcs_write_natural(VMX_HOST_IA32_SYSENTER_ESP,
+				   (unsigned long)(cpu_entry_stack(cpu) + 1));
+
+	akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_FLUSH_TLB, false);
 }
 
 void akvm_vcpu_sched_out(struct preempt_notifier *pn,
