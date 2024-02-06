@@ -103,6 +103,11 @@ static inline bool vmx_ept_invept_all_context(struct vmx_capability *vmx_cap)
 	return !!(vmx_cap->msr_ept_vpid & BIT(26));
 }
 
+static inline gpa vmx_ept_max_addr(struct vmx_capability *vmx_cap)
+{
+	return 1UL << ((vmx_ept_level(vmx_cap) == 4) ? 48 : 52);
+}
+
 struct vmx_region {
 	u32 revision:31;
 };

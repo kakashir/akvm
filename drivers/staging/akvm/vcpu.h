@@ -6,6 +6,7 @@
 #include <linux/mm.h>
 
 #include "common.h"
+#include "vmx.h"
 #include "vm.h"
 
 enum vcpu_run_state {

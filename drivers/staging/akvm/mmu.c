@@ -10,6 +10,10 @@
 #define akvm_mmu_pr_info(...)
 #endif
 
+#define AKVM_NULL_SPTE 0ULL
+#define AKVM_MIN_GPA_ADDR 0UL
+#define AKVM_MAX_GPA_ADDR vmx_ept_max_addr(&vmx_capability)
+
 #define PAGE_LEVEL_BIT 9
 #define AKVM_PAGE_SIZE(l) (1ULL << (PAGE_SHIFT + ((l) - 1) * PAGE_LEVEL_BIT))
 /* TODO: not all high bits are VALID physical address! */
@@ -40,6 +44,7 @@ struct akvm_mmu_walker {
 	void *root_page;
 	enum akvm_page_level max_level;
 	enum akvm_page_level cur_level;
+	enum akvm_page_level min_level;
 	spte cur_spte;
 	spte *cur_sptep;
 	gpa cur_gpa;
@@ -78,9 +83,27 @@ static inline void* __sptep_to_va(spte *p)
 	return __va(__spte_to_pa(*p));
 }
 
+static inline void* __spte_to_va(spte val)
+{
+	return __va(__spte_to_pa(val));
+}
+
+static inline struct akvm_mmu_page  *__spte_to_sub_mmu_page(spte val)
+{
+	unsigned long pa;
+
+	pa = __spte_to_pa(val);
+	return (void*)page_private(pfn_to_page(pa >> PAGE_SHIFT));
+}
+
 static inline bool __spte_last_level(spte val, enum akvm_page_level level)
 {
 	return vmx_ept_pte_large_page(val) || level == AKVM_PAGE_LEVEL_1;
+}
+
+static inline bool __spte_present(spte val)
+{
+	return vmx_ept_pte_present(val);
 }
 
 static inline bool __spte_at_end(spte *sptep)
@@ -112,11 +135,14 @@ static void __akvm_mmu_walk_read_spte(struct akvm_mmu_walker *walker)
 }
 
 static void akvm_mmu_walk_begin(struct akvm_mmu_walker *walker,
-				void *root_page, enum akvm_page_level max_level,
+				void *root_page,
+				enum akvm_page_level max_level,
+				enum akvm_page_level min_level,
 				gpa start, gpa end)
 {
 	walker->root_page = root_page;
 	walker->max_level = max_level;
+	walker->min_level = min_level;
 	walker->cur_level = max_level;
 	walker->cur_gpa = start;
 	walker->target_gpa = start;
@@ -128,16 +154,20 @@ static void akvm_mmu_walk_begin(struct akvm_mmu_walker *walker,
 
 static bool akvm_mmu_walk_continue(struct akvm_mmu_walker *walker)
 {
-	return walker->target_gpa < walker->end;
+	if (walker->end <= walker->start)
+		return false;
+
+	return walker->target_gpa < walker->end &&
+		walker->target_gpa >= walker->start;
 }
 
 static bool akvm_mmu_walk_down(struct akvm_mmu_walker *walker)
 {
 	spte val = walker->cur_spte;
 
-	WARN_ON(walker->cur_level < AKVM_PAGE_LEVEL_1);
+	WARN_ON(walker->cur_level < walker->min_level);
 
-	if (walker->cur_level == AKVM_PAGE_LEVEL_1)
+	if (walker->cur_level == walker->min_level)
 		return false;
 
 	if (!vmx_ept_pte_present(val))
@@ -156,11 +186,11 @@ static bool akvm_mmu_walk_down(struct akvm_mmu_walker *walker)
 
 static bool akvm_mmu_walk_side(struct akvm_mmu_walker *walker)
 {
-	if (__spte_at_end(walker->cur_sptep))
-		return false;
-
 	walker->target_gpa = walker->cur_gpa +
 		(1ULL << AKVM_GPA_SHIFT(walker->cur_level));
+
+	if (__spte_at_end(walker->cur_sptep))
+		return false;
 
 	if (!akvm_mmu_walk_continue(walker))
 		return false;
@@ -198,8 +228,8 @@ static void akvm_mmu_walk_refresh(struct akvm_mmu_walker *walker)
 	__akvm_mmu_walk_read_spte(walker);
 }
 
-#define akvm_mmu_for_each(w, r, l, s, e)		\
-	for (akvm_mmu_walk_begin(w, r, l, s, e); akvm_mmu_walk_continue(w); \
+#define akvm_mmu_for_each(w, r, lmax, lmin, s, e)			\
+	for (akvm_mmu_walk_begin(w, r, lmax, lmin, s, e); akvm_mmu_walk_continue(w); \
 	     akvm_mmu_walk_next(w))
 
 static int akvm_mmu_create_mmu_page(struct akvm_mmu_page **new_mmu_page, int level)
@@ -231,6 +261,7 @@ failed_mmu_page:
 static void akvm_mmu_destroy_mmu_page(struct akvm_mmu_page *mmu_page)
 {
 	free_page((unsigned long)mmu_page->page);
+	list_del(&mmu_page->entry);
 	kfree(mmu_page);
 }
 
@@ -286,6 +317,11 @@ static inline void akvm_mmu_put_page(struct page *page)
 	unpin_user_page(page);
 }
 
+static void akvm_free_data_page(unsigned long pa, enum akvm_page_level level)
+{
+	akvm_mmu_put_page(pfn_to_page(pa >> PAGE_SHIFT));
+}
+
 static int akvm_mmu_install_data_page(struct mmu_context *mmu,
 				      struct akvm_mmu_walker *walker)
 {
@@ -294,35 +330,25 @@ static int akvm_mmu_install_data_page(struct mmu_context *mmu,
 	unsigned long hva;
 	struct page *page;
 	struct vm_memory_slot *slot;
-	struct akvm_data_page *data_page;
-
-	data_page = kzalloc(sizeof(*data_page), GFP_KERNEL_ACCOUNT);
-	INIT_LIST_HEAD(&data_page->entry);
 
 	r =  akvm_vm_gpa_to_memory_slot(mmu->vm,
 					walker->cur_gpa,
 					walker->cur_gpa + PAGE_SIZE,
 					&slot);
 	if (r)
-		goto free_data_page_struct;
+		return r;
 
 	hva = slot->hva + walker->target_gpa - slot->gpa;
 	r = akvm_mmu_hva_to_page(hva, &page);
 	if (r)
-		goto free_data_page_struct;
+		return r;
 
 	new_spte = spte_init(__pa(page_address(page)), AKVM_SPTE_PERM, true);
 	*walker->cur_sptep = new_spte;
 
-	data_page->page = page;
-	list_add(&data_page->entry, &mmu->data_page_list);
 	/* pin the page */
 	// akvm_mmu_put_page(page);
 
-	return r;
-
-free_data_page_struct:
-	kfree(data_page);
 	return r;
 }
 
@@ -346,6 +372,7 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 	int r;
 	struct akvm_mmu_walker walker;
 	enum akvm_page_level max_level = mmu->level;
+	enum akvm_page_level min_level = AKVM_PAGE_LEVEL_1;
 	void *root = (void*)akvm_mmu_root_page(mmu);
 #if 0
 	/* Test data debug purpose only */
@@ -360,7 +387,7 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 #endif
 	write_lock(&mmu->lock);
 
-	akvm_mmu_for_each(&walker, root, max_level, start, end) {
+	akvm_mmu_for_each(&walker, root, max_level, min_level, start, end) {
 		if (signal_pending(current)) {
 			r = 1;
 			break;
@@ -390,6 +417,64 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 	return r;
 }
 
+static void __akvm_free_mmu_page_table(void *root, enum akvm_page_level level,
+				       gpa start, gpa end)
+{
+	struct akvm_mmu_walker walker;
+	enum akvm_page_level sub_level;
+	void *sub_root;
+	gpa sub_start;
+	gpa sub_end;
+	spte spte;
+
+	if (!root)
+		return;
+
+	akvm_mmu_for_each(&walker, root, level, level, start, end) {
+		spte = walker.cur_spte;
+		level = walker.cur_level;
+
+		dump_walker(&walker);
+
+		if (!__spte_present(spte))
+			continue;
+
+		if (__spte_last_level(spte, level)) {
+			akvm_free_data_page(__spte_to_pa(spte), level);
+			*walker.cur_sptep = AKVM_NULL_SPTE;
+			continue;
+		}
+
+		WARN_ON(walker.cur_level == AKVM_PAGE_LEVEL_1);
+
+		sub_level = walker.cur_level - 1;
+		sub_root = __spte_to_va(spte);
+		sub_start = walker.cur_gpa;
+		sub_end = min(sub_start +
+			      (1UL << AKVM_GPA_SHIFT(level)), end);
+
+		__akvm_free_mmu_page_table(sub_root, sub_level,
+					   sub_start, sub_end);
+		akvm_mmu_destroy_mmu_page(__spte_to_sub_mmu_page(spte));
+		*walker.cur_sptep = AKVM_NULL_SPTE;
+	}
+}
+
+static void akvm_free_mmu_page_table(struct mmu_context *mmu,
+				     gpa start, gpa end)
+{
+	void *root = (void*)akvm_mmu_root_page(mmu);
+
+	if (!root)
+		return;
+
+	write_lock(&mmu->lock);
+
+	__akvm_free_mmu_page_table(root, mmu->level, start, end);
+
+	write_unlock(&mmu->lock);
+}
+
 int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level)
 {
 	if (level > AKVM_MMU_MAX_LEVEL)
@@ -402,7 +487,6 @@ int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level)
 	mmu->vm = vm;
 	mmu->level = level;
 	INIT_LIST_HEAD(&mmu->page_list);
-	INIT_LIST_HEAD(&mmu->data_page_list);
 	rwlock_init(&mmu->lock);
 
 	return 0;
@@ -410,19 +494,8 @@ int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level)
 
 void akvm_deinit_mmu(struct mmu_context *mmu)
 {
-	struct akvm_mmu_page *cur;
-	struct akvm_mmu_page *tmp;
-	struct akvm_data_page *cur_data;
-	struct akvm_data_page *tmp_data;
+	akvm_free_mmu_page_table(mmu, AKVM_MIN_GPA_ADDR, AKVM_MAX_GPA_ADDR);
 
-	list_for_each_entry_safe(cur, tmp, &mmu->page_list, entry)
-		akvm_mmu_destroy_mmu_page(cur);
-
-	list_for_each_entry_safe(cur_data, tmp_data, &mmu->data_page_list,
-				 entry) {
-		akvm_mmu_put_page(cur_data->page);
-		kfree(cur_data);
-	}
-
+	WARN_ON(!list_empty(&mmu->page_list));
 	free_page(mmu->root);
 }
