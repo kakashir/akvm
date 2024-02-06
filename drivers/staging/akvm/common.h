@@ -5,7 +5,6 @@
 #include <linux/preempt.h>
 #include <linux/mm.h>
 #include <linux/percpu.h>
-#include "vmx.h"
 
 #define __FUNC_TRACE__(text) pr_info("%s() " #text "\n", __func__);
 #define FUNC_ENTRY()  __FUNC_TRACE__("ENTRY")
@@ -13,6 +12,7 @@
 
 extern struct vmx_capability vmx_capability;
 extern struct preempt_ops akvm_preempt_ops;
+struct vmx_region;
 DECLARE_PER_CPU(struct vmx_region *, vmx_region);
 
 struct vmcs_list {
