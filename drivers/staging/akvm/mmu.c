@@ -1,5 +1,5 @@
 #include <linux/list.h>
-
+#include <asm/processor.h>
 #include "mmu.h"
 #include "vmx.h"
 #include "vm.h"
@@ -16,8 +16,7 @@
 
 #define PAGE_LEVEL_BIT 9
 #define AKVM_PAGE_SIZE(l) (1ULL << (PAGE_SHIFT + ((l) - 1) * PAGE_LEVEL_BIT))
-/* TODO: not all high bits are VALID physical address! */
-#define AKVM_SPTE_PA_MASK ~((1ULL << PAGE_SHIFT) - 1)
+#define AKVM_SPTE_PA_MASK (((1ULL << boot_cpu_data.x86_phys_bits) - 1) & PAGE_MASK)
 #define AKVM_SPTE_COUNT (1ULL << PAGE_LEVEL_BIT)
 #define AKVM_SPTE_INDEX_MASK (AKVM_SPTE_COUNT - 1)
 #define AKVM_GPA_SHIFT(l) (PAGE_SHIFT + \
