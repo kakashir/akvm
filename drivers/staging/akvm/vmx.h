@@ -146,7 +146,7 @@ union vmx_exit_reason {
 #define VMX_EXIT_EXCEP_NMI  0
 #define VMX_EXIT_INTR  1
 #define VMX_EXIT_EPT_VIOLATION 48
-
+#define VMX_EXIT_MAX_NUMBER 78
 union vmx_intr_info {
 	struct {
 		unsigned int vector:8;
