@@ -17,6 +17,7 @@
 #include "vm.h"
 #include "vmx.h"
 #include "x86.h"
+#include "exit.h"
 
 #ifdef _DEBUG
 #define akvm_pr_info pr_info
@@ -718,78 +719,6 @@ static int vm_enter_exit(struct vcpu_context *vcpu)
 	return r;
 }
 
-static int do_ept_violation(struct vcpu_context *vcpu)
-{
-	gpa fault_addr = vmcs_read_64(VMX_EXIT_GPA);
-
-	return akvm_handle_mmu_page_fault(vcpu, &vcpu->vm->mmu, fault_addr);
-};
-
-static int handle_vm_exit(struct vcpu_context *vcpu)
-{
-	switch (vcpu->exit.reason) {
-	/*
-	  current ignore due to irqoff handler already
-	  called host handler
-	*/
-	case VMX_EXIT_EXCEP_NMI:
-		fallthrough;
-	case VMX_EXIT_INTR:
-		return 0;
-	case VMX_EXIT_EPT_VIOLATION:
-		return do_ept_violation(vcpu);
-	default:
-		pr_err("unimplemented vmexit: %d\n", vcpu->exit.reason);
-		return -ENOTSUPP;
-	}
-}
-
-extern void __akvm_call_host_intr(unsigned long);
-
-static int do_host_intr(struct vcpu_context *vcpu)
-{
-	unsigned long handler;
-	union idt_entry64 *idte;
-	struct gdt_idt_table_desc idt_desc;
-
-	if (WARN_ON(!vcpu->intr_info.valid))
-		return -EINVAL;
-
-	if (WARN_ON(vcpu->intr_info.type != VMX_INTR_TYPE_EXTERNAL))
-		return -EINVAL;
-
-	get_idt_table_desc(&idt_desc);
-	idte = (void*)idt_desc.base;
-	handler = get_idt_entry_point(idte + vcpu->intr_info.vector);
-
-	__akvm_call_host_intr(handler);
-	return 0;
-}
-
-static int do_host_nmi(struct vcpu_context *vcpu)
-{
-	if (WARN_ON(!vcpu->intr_info.valid))
-		return -EINVAL;
-
-	if (WARN_ON(vcpu->intr_info.type != VMX_INTR_TYPE_NMI))
-		return -EINVAL;
-
-	__akvm_call_host_intr((unsigned long)asm_exc_nmi_kvm_vmx);
-	return 0;
-}
-
-static int handle_vm_exit_irqoff(struct vcpu_context *vcpu)
-{
-	switch (vcpu->exit.reason) {
-	case VMX_EXIT_EXCEP_NMI:
-		return do_host_nmi(vcpu);
-	case VMX_EXIT_INTR:
-		return do_host_intr(vcpu);
-	default:
-		return 0;
-	}
-}
-
 static int akvm_handle_vcpu_request_flush_tlb(struct vcpu_context *vcpu)
 {
 	if (vmx_ept_invept_single_context(&vmx_capability))
@@ -867,7 +796,7 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 		set_run_state_leave_guest(vcpu);
 
 		if (!r && !vcpu->exit.failed)
-			handle_vm_exit_irqoff(vcpu);
+			r = handle_vm_exit_irqoff(vcpu);
 irq_enable:
 		local_irq_restore(flags);
 		preempt_enable();
