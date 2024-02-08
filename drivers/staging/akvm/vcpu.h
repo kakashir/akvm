@@ -16,7 +16,7 @@ enum vcpu_run_state {
 	VCPU_LEAVE_GUEST,
 };
 
-enum gpr_context_id {
+enum reg_context_id {
 	GPR_RAX = 0,
 	GPR_RBX,
 	GPR_RCX,
@@ -33,25 +33,25 @@ enum gpr_context_id {
 	GPR_R13,
 	GPR_R14,
 	GPR_R15,
-};
 
-struct gpr_context {
-	unsigned long rax;
-	unsigned long rbx;
-	unsigned long rcx;
-	unsigned long rdx;
-	unsigned long rdi;
-	unsigned long rsi;
-	unsigned long rbp;
-	unsigned long rsp;
-	unsigned long r8;
-	unsigned long r9;
-	unsigned long r10;
-	unsigned long r11;
-	unsigned long r12;
-	unsigned long r13;
-	unsigned long r14;
-	unsigned long r15;
+	SYS_RIP,
+	SYS_RFLAGS,
+	SYS_CR0,
+	SYS_CR2,
+	SYS_CR8,
+
+	REG_MAX,
+};
+#define VCPU_REG_AVAILABLE_MASK					\
+	((1ULL << GPR_RAX) | (1ULL << GPR_RBX) | (1ULL << GPR_RCX) |	\
+	 (1ULL << GPR_RDX) | (1ULL << GPR_RDI) | (1ULL << GPR_RSI) |	\
+	 (1ULL << GPR_RBP) | /* | (1ULL << GPR_RSP) */ (1ULL << GPR_R8) | \
+	 (1ULL << GPR_R9) | (1ULL << GPR_R10) | (1ULL << GPR_R11) |	\
+	 (1ULL << GPR_R12) | (1ULL << GPR_R13) | (1ULL << GPR_R14) |	\
+	 (1ULL << GPR_R15) /* | (1ULL << SYS_RIP) | (1ULL << SYS_RFLAGS) */)
+
+struct reg_context {
+	unsigned long val[REG_MAX];
 } __attribute__((packed));
 
 struct vm_host_state {
@@ -64,14 +64,10 @@ struct vm_host_state {
 	unsigned long msr_debugctl;
 	unsigned long msr_rtit_ctl;
 	unsigned long msr_lbr_ctl;
-
-
 } __attribute__((packed));
 
 struct vm_guest_state {
-	struct gpr_context gprs;
-	unsigned long cr2;
-	unsigned long cr8;
+	struct reg_context regs;
 } __attribute__((packed));
 
 struct vm_vmcs {
@@ -107,6 +103,8 @@ struct vcpu_context {
 	int index;
 	atomic_t run_state;
 	unsigned long requests;
+	unsigned long regs_available_mask;
+	unsigned long regs_dirty_mask;
 	unsigned long ept_root_cached;
 
 	struct akvm_vcpu_runtime  *runtime;
@@ -152,5 +150,11 @@ static inline void set_run_state_in_host(struct vcpu_context *vcpu)
 {
 	atomic_set(&vcpu->run_state, VCPU_IN_HOST);
 }
+
+unsigned long akvm_vcpu_read_register(struct vcpu_context *vcpu,
+				      enum reg_context_id id);
+void akvm_vcpu_write_register(struct vcpu_context *vcpu,
+			      enum reg_context_id id,
+			      unsigned long val);
 
 #endif
