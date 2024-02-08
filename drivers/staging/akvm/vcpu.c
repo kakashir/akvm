@@ -382,7 +382,7 @@ static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	    (vcpu->procbase_2nd_ctl & VMX_PROCBASE_2ND_ENABLE_EPT) &&
 	    (vcpu->procbase_ctl & VMX_PROCBASE_ACTIVE_2ND_CONTROL))
 		val &= ~(X86_CR0_PG | X86_CR0_PE);
-	vmcs_write_natural(VMX_GUEST_CR0, val);
+	akvm_vcpu_write_register(vcpu, SYS_CR0, val);
 	akvm_pr_info("guest cr0: 0x%lx\n", val);
 
 	val = 0;
@@ -398,15 +398,15 @@ static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	akvm_pr_info("guest dr7: 0x%lx\n", val);
 
 	val = 0;
-	vmcs_write_natural(VMX_GUEST_RIP, val);
+	akvm_vcpu_write_register(vcpu, SYS_RIP, val);
 	akvm_pr_info("guest rip: 0x%lx\n", val);
 
 	val = 0;
-	vmcs_write_natural(VMX_GUEST_RSP, val);
+	akvm_vcpu_write_register(vcpu, GPR_RSP, val);
 	akvm_pr_info("guest rsp: 0x%lx\n", val);
 
 	val = X86_FLAGS_RESERVED_1;
-	vmcs_write_natural(VMX_GUEST_RFLAGS, val);
+	akvm_vcpu_write_register(vcpu, SYS_RFLAGS, val);
 	akvm_pr_info("guest rflags: 0x%lx\n", val);
 
 	/*
@@ -626,16 +626,46 @@ static void load_host_state(struct vm_host_state *state)
 
 }
 
-static void save_guest_state(struct vm_guest_state *state)
+static void save_guest_state(struct vcpu_context *vcpu)
 {
-	state->cr2 = read_cr2();
-	state->cr8 = read_cr8();
+	akvm_vcpu_write_register(vcpu, SYS_CR2, read_cr2());
+	akvm_vcpu_write_register(vcpu, SYS_CR8, read_cr8());
 }
 
-static void load_guest_state(struct vm_guest_state *state)
+static void load_guest_state(struct vcpu_context *vcpu,
+			     struct vm_guest_state *state)
 {
-	write_cr2(state->cr2);
-	write_cr8(state->cr8);
+	struct {
+		enum reg_context_id reg_id;
+		unsigned int vmcs_id;
+	} regs[] = {
+		{ .reg_id = GPR_RSP, .vmcs_id = VMX_GUEST_RSP },
+		{ .reg_id = SYS_RIP, .vmcs_id = VMX_GUEST_RIP },
+		{ .reg_id = SYS_RFLAGS, .vmcs_id = VMX_GUEST_RFLAGS },
+		{ .reg_id = SYS_CR0, .vmcs_id = VMX_GUEST_CR0 },
+	};
+
+	for (int i = 0; i < sizeof(regs) / sizeof(regs[0]); ++i) {
+		unsigned long mask = 1ULL << regs[i].reg_id;
+		enum reg_context_id reg_id = regs[i].reg_id;
+		unsigned int vmcs_id = regs[i].vmcs_id;
+
+		if (!(vcpu->regs_dirty_mask & mask))
+		    continue;
+
+		vmcs_write_natural(vmcs_id, state->regs.val[reg_id]);
+		vcpu->regs_dirty_mask &= ~mask;
+	}
+
+	if (vcpu->regs_dirty_mask & BIT_ULL(SYS_CR2)) {
+		write_cr2(state->regs.val[SYS_CR2]);
+		vcpu->regs_dirty_mask &= ~BIT_ULL(SYS_CR2);
+	}
+
+	if (vcpu->regs_dirty_mask & BIT_ULL(SYS_CR8)) {
+		write_cr8(state->regs.val[SYS_CR8]);
+		vcpu->regs_dirty_mask &= ~BIT_ULL(SYS_CR8);
+	}
 }
 
 static void __vcpu_ipi_kicker(void *unused)
@@ -684,7 +714,7 @@ void akvm_vcpu_set_request(struct vcpu_context *vcpu, unsigned long request,
 }
 
 asmlinkage unsigned long
-__akvm_vcpu_run(struct vm_host_state *hs, struct vm_guest_state *gs,
+__akvm_vcpu_run(struct vm_host_state *hs, struct reg_context *gs,
 		int launched);
 
 static int vm_enter_exit(struct vcpu_context *vcpu)
@@ -693,8 +723,17 @@ static int vm_enter_exit(struct vcpu_context *vcpu)
 
 	set_run_state_in_guest(vcpu);
 
-	r = __akvm_vcpu_run(&vcpu->host_state, &vcpu->guest_state,
+	r = __akvm_vcpu_run(&vcpu->host_state, &vcpu->guest_state.regs,
 			    vcpu->vmcs.launched);
+
+	/*
+	  these regs always load into guest context so
+	  remove them from dirty bitmap
+	*/
+	vcpu->regs_dirty_mask &= ~VCPU_REG_AVAILABLE_MASK;
+	vcpu->regs_available_mask = VCPU_REG_AVAILABLE_MASK;
+	WARN_ON(vcpu->regs_dirty_mask);
+
 	if (!r) {
 		vcpu->exit.val = vmcs_read_32(VMX_EXIT_REASON);
 		vcpu->intr_info.val = vmcs_read_32(VMX_EXIT_INTR_INFO);
@@ -786,11 +825,11 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 			goto irq_enable;
 
 		save_host_state(&vcpu->host_state);
-		load_guest_state(&vcpu->guest_state);
+		load_guest_state(vcpu, &vcpu->guest_state);
 
 		r = vm_enter_exit(vcpu);
 
-		save_guest_state(&vcpu->guest_state);
+		save_guest_state(vcpu);
 		load_host_state(&vcpu->host_state);
 
 		set_run_state_leave_guest(vcpu);
@@ -1024,5 +1063,52 @@ failed_deinit_vcpu:
 failed_free:
 	kfree(vcpu);
 	return r;
+}
 
+unsigned long akvm_vcpu_read_register(struct vcpu_context *vcpu,
+				      enum reg_context_id id)
+{
+	unsigned long id_mask = (1ULL << id);
+
+	WARN_ON(id >= REG_MAX);
+
+	if (vcpu->regs_available_mask & id_mask)
+		return vcpu->guest_state.regs.val[id];
+
+	switch(id) {
+	case GPR_RSP:
+		vcpu->guest_state.regs.val[id]
+			= vmcs_read_natural(VMX_GUEST_RSP);
+		break;
+	case SYS_RIP:
+		vcpu->guest_state.regs.val[id]
+			= vmcs_read_natural(VMX_GUEST_RIP);
+		break;
+	case SYS_RFLAGS:
+		vcpu->guest_state.regs.val[id]
+			= vmcs_read_natural(VMX_GUEST_RFLAGS);
+		break;
+	case SYS_CR0:
+		vcpu->guest_state.regs.val[id]
+			= vmcs_read_natural(VMX_GUEST_CR0);
+		break;
+	default:
+		WARN_ON(1);
+	}
+
+	vcpu->regs_available_mask |= id_mask;
+	return vcpu->guest_state.regs.val[id];
+}
+
+void akvm_vcpu_write_register(struct vcpu_context *vcpu,
+			      enum reg_context_id id,
+			      unsigned long val)
+{
+	unsigned long id_mask = (1ULL << id);
+
+	WARN_ON(id >= REG_MAX);
+
+	vcpu->guest_state.regs.val[id] = val;
+	vcpu->regs_available_mask |= id_mask;
+	vcpu->regs_dirty_mask |= id_mask;
 }
