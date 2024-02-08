@@ -39,4 +39,9 @@ struct akvm_memory_slot {
 /* hva/gpa/size need aligning on this value */
 #define AKVM_MEMORY_SLOT_ALIGN 4096
 
+struct akvm_vcpu_runtime {
+	__u64 exit_reason;
+};
+#define AKVM_VCPU_RUNTIME_PG_OFF 0ULL
+
 #endif /* __LINUX_AKVM_H */

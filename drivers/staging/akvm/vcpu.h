@@ -108,6 +108,8 @@ struct vcpu_context {
 	atomic_t run_state;
 	unsigned long requests;
 	unsigned long ept_root_cached;
+
+	struct akvm_vcpu_runtime  *runtime;
 };
 
 int akvm_create_vcpu(struct file *vm_file,

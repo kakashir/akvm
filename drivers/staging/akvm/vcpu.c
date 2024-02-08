@@ -846,6 +846,7 @@ static void akvm_deinit_vcpu(struct vcpu_context *vcpu)
 	vcpu_load(vcpu);
 	vcpu_put(vcpu, true);
 	free_vmcs(vcpu);
+	free_page((unsigned long)vcpu->runtime);
 }
 
 static int akvm_vcpu_open(struct inode *inode, struct file *file)
@@ -898,9 +899,35 @@ static long akvm_vcpu_ioctl(struct file *f, unsigned int ioctl,
 	return r;
 }
 
+static vm_fault_t akvm_vcpu_fault(struct vm_fault *vmf)
+{
+	struct vcpu_context *vcpu = vmf->vma->vm_file->private_data;
+	struct page *page;
+
+	page = virt_to_page(vcpu->runtime);
+	get_page(page);
+	vmf->page = page;
+	return 0;
+}
+
+static const struct vm_operations_struct akvm_vcpu_vm_ops = {
+	.fault = akvm_vcpu_fault,
+};
+
+static int akvm_vcpu_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	if (vma->vm_pgoff != 0) {
+		pr_info("vm_pgoff != 0: 0x%lx\n", vma->vm_pgoff);
+		return -EINVAL;
+	}
+	vma->vm_ops = &akvm_vcpu_vm_ops;
+	return 0;
+}
+
 static struct file_operations akvm_vcpu_ops = {
 	.open = akvm_vcpu_open,
 	.unlocked_ioctl = akvm_vcpu_ioctl,
+	.mmap = akvm_vcpu_mmap,
 	.llseek = noop_llseek,
 	.release = akvm_vcpu_release,
 	.owner = THIS_MODULE,
@@ -909,14 +936,18 @@ static struct file_operations akvm_vcpu_ops = {
 static int akvm_init_vcpu(struct vcpu_context *vcpu)
 {
 	int r;
+	struct akvm_vcpu_runtime *runtime;
 
 	r = alloc_vmcs(vcpu);
 	if (r)
 		return r;
-
 	prepare_vmcs(vcpu->vmcs.vmcs,
 		     vmx_region_size(&vmx_capability),
 		     vmx_vmcs_revision(&vmx_capability));
+
+	runtime =(void*) __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!runtime)
+		goto failed_free_vmcs;
 
 	vcpu_load(vcpu);
 
@@ -928,10 +959,13 @@ static int akvm_init_vcpu(struct vcpu_context *vcpu)
 	vcpu_put(vcpu, false);
 
 	mutex_init(&vcpu->ioctl_lock);
+	vcpu->runtime = runtime;
 	return r;
 
 failed_put:
 	vcpu_put(vcpu, true);
+	free_page((unsigned long)runtime);
+failed_free_vmcs:
 	free_vmcs(vcpu);
 	return r;
 }
@@ -944,6 +978,8 @@ int akvm_create_vcpu(struct file *vm_file,
 	struct file *file;
 	struct vcpu_context *vcpu;
 	vcpu_create_notifier vm_create_vcpu_cb = vm->vcpu_create_cb;
+
+	BUILD_BUG_ON(sizeof(struct akvm_vcpu_runtime) > PAGE_SIZE);
 
 	vcpu = kzalloc(sizeof(*vcpu), GFP_KERNEL_ACCOUNT);
 	if (!vcpu)
