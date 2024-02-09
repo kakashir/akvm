@@ -78,6 +78,7 @@ struct vm_vmcs {
 };
 
 #define AKVM_VCPU_REQUEST_FLUSH_TLB 0
+#define AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE 1
 
 struct vcpu_context {
 	struct vm_vmcs vmcs;
@@ -91,6 +92,7 @@ struct vcpu_context {
 	union vmx_exit_reason exit;
 	union vmx_intr_info intr_info;
 	int intr_error_code;
+	int exit_instruction_len;
 
 	struct vm_host_state host_state;
 	struct vm_guest_state guest_state;
@@ -156,5 +158,6 @@ unsigned long akvm_vcpu_read_register(struct vcpu_context *vcpu,
 void akvm_vcpu_write_register(struct vcpu_context *vcpu,
 			      enum reg_context_id id,
 			      unsigned long val);
+int akvm_vcpu_skip_instruction(struct vcpu_context *vcpu);
 
 #endif

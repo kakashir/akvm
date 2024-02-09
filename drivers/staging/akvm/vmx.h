@@ -145,8 +145,10 @@ union vmx_exit_reason {
 };
 #define VMX_EXIT_EXCEP_NMI  0
 #define VMX_EXIT_INTR  1
+#define VMX_EXIT_VMCALL 18
 #define VMX_EXIT_EPT_VIOLATION 48
 #define VMX_EXIT_MAX_NUMBER 78
+
 union vmx_intr_info {
 	struct {
 		unsigned int vector:8;
@@ -176,7 +178,7 @@ enum vmcs_filed_id {
 	VMX_EXIT_INTR_ERROR_CODE = 0x4406,
 	VMX_EXIT_GPA = 0x2400,
 	VMX_EXIT_GPA_HIGH = 0x2401,
-
+	VMX_EXIT_INSTRUCTION_LENGTH = 0x440c,
 	VMX_PINBASE_CTL = 0x4000,
 	VMX_PROCBASE_CTL = 0x4002,
 	VMX_PROCBASE_2ND_CTL = 0x401e,

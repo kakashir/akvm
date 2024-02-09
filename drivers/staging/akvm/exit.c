@@ -1,5 +1,6 @@
 #include <linux/printk.h>
 #include <linux/module.h>
+#include <uapi/linux/akvm.h>
 #include <asm/idtentry.h>
 
 #include "exit.h"
@@ -60,9 +61,33 @@ static int handle_ept_violation(struct vcpu_context *vcpu)
 	return akvm_handle_mmu_page_fault(vcpu, &vcpu->vm->mmu, fault_addr);
 };
 
+static int handle_vmcall(struct vcpu_context *vcpu)
+{
+	struct akvm_vcpu_runtime *runtime = vcpu->runtime;
+
+	vcpu->exit_instruction_len =
+		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
+
+	runtime->exit_reason = AKVM_EXIT_VM_SERVICE;
+
+	runtime->vm_service.type = akvm_vcpu_read_register(vcpu, GPR_RAX);
+	runtime->vm_service.in_out[0] = akvm_vcpu_read_register(vcpu, GPR_RDI);
+	runtime->vm_service.in_out[1] = akvm_vcpu_read_register(vcpu, GPR_RSI);
+	runtime->vm_service.in_out[2] = akvm_vcpu_read_register(vcpu, GPR_RDX);
+	runtime->vm_service.in_out[3] = akvm_vcpu_read_register(vcpu, GPR_RCX);
+	runtime->vm_service.in_out[4] = akvm_vcpu_read_register(vcpu, GPR_R8);
+	runtime->vm_service.in_out[5] = akvm_vcpu_read_register(vcpu, GPR_R9);
+	runtime->vm_service.ret =  VM_SERVICE_SUCCESS;
+
+	akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE,
+			      false);
+	return 1;
+}
+
 static vm_exit_handler exit_handler[VMX_EXIT_MAX_NUMBER] =
 {
 	[VMX_EXIT_INTR] = handle_ignore,
+	[VMX_EXIT_VMCALL] = handle_vmcall,
 	[VMX_EXIT_EPT_VIOLATION] = handle_ept_violation,
 };
 
@@ -90,4 +115,19 @@ int handle_vm_exit(struct vcpu_context *vcpu)
 	if (!handler)
 		return default_handler(vcpu);
 	return handler(vcpu);
+}
+
+int handle_request_vm_service_complete(struct vcpu_context *vcpu)
+{
+	struct akvm_vcpu_runtime *rt = vcpu->runtime;
+
+	akvm_vcpu_write_register(vcpu, GPR_RAX, rt->vm_service.ret);
+	akvm_vcpu_write_register(vcpu, GPR_RDI, rt->vm_service.in_out[0]);
+	akvm_vcpu_write_register(vcpu, GPR_RSI, rt->vm_service.in_out[1]);
+	akvm_vcpu_write_register(vcpu, GPR_RDX, rt->vm_service.in_out[2]);
+	akvm_vcpu_write_register(vcpu, GPR_RCX, rt->vm_service.in_out[3]);
+	akvm_vcpu_write_register(vcpu, GPR_R8, rt->vm_service.in_out[4]);
+	akvm_vcpu_write_register(vcpu, GPR_R9, rt->vm_service.in_out[5]);
+
+	return akvm_vcpu_skip_instruction(vcpu);
 }

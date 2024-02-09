@@ -39,8 +39,18 @@ struct akvm_memory_slot {
 /* hva/gpa/size need aligning on this value */
 #define AKVM_MEMORY_SLOT_ALIGN 4096
 
+#define VM_SERVICE_SUCCESS 0LL
+
 struct akvm_vcpu_runtime {
+#define AKVM_EXIT_VM_SERVICE 1 /* see "vm_service" */
 	__u64 exit_reason;
+	union {
+		struct {
+			__u64 type;
+			__u64 in_out[6];
+			__u64 ret;
+		} vm_service;
+	};
 };
 #define AKVM_VCPU_RUNTIME_PG_OFF 0ULL
 

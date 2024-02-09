@@ -770,6 +770,10 @@ static int akvm_vcpu_handle_requests(struct vcpu_context *vcpu)
 {
 	int r = 0;
 
+	if (test_and_clear_bit(AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE,
+			       &vcpu->requests))
+		r = handle_request_vm_service_complete(vcpu);
+
 	return r;
 }
 
@@ -1111,4 +1115,17 @@ void akvm_vcpu_write_register(struct vcpu_context *vcpu,
 	vcpu->guest_state.regs.val[id] = val;
 	vcpu->regs_available_mask |= id_mask;
 	vcpu->regs_dirty_mask |= id_mask;
+}
+
+int akvm_vcpu_skip_instruction(struct vcpu_context *vcpu)
+{
+	unsigned long rip;
+
+	if (!vcpu->exit_instruction_len)
+		return -EINVAL;
+
+	rip = akvm_vcpu_read_register(vcpu, SYS_RIP);
+	akvm_vcpu_write_register(vcpu, SYS_RIP,
+				 rip + vcpu->exit_instruction_len);
+	return 0;
 }
