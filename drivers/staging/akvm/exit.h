@@ -6,5 +6,6 @@
 
 int handle_vm_exit(struct vcpu_context *vcpu);
 int handle_vm_exit_irqoff(struct vcpu_context *vcpu);
+int handle_request_vm_service_complete(struct vcpu_context *vcpu);
 
 #endif
