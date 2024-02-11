@@ -390,6 +390,7 @@ static inline int invept(unsigned long ept_root)
 #define VMX_PINBASE_NMI_EXIT BIT(3)
 
 #define VMX_PROCBASE_ACTIVE_3RD_CONTROL BIT(17)
+#define VMX_PROCBASE_UNCOND_IO_EXIT BIT(24)
 #define VMX_PROCBASE_ACTIVE_2ND_CONTROL BIT(31)
 
 #define VMX_PROCBASE_2ND_ENABLE_EPT BIT(1)
