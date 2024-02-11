@@ -88,6 +88,8 @@ struct vcpu_context {
 	unsigned int procbase_2nd_ctl;
 	unsigned int entry_ctl;
 	unsigned int exit_ctl;
+	unsigned long cr0_host_mask;
+	unsigned long cr0_read_shadow;
 
 	union vmx_exit_reason exit;
 	union vmx_intr_info intr_info;

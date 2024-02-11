@@ -163,13 +163,15 @@ static int vcpu_load(struct vcpu_context *vcpu)
 }
 
 static int setup_vmcs_control(struct vcpu_context *vcpu,
-		       struct vmx_capability *cap)
+			      struct vmx_capability *cap)
 {
 	unsigned int vmx_pinbase = VMX_PINBASE_CTL_MIN;
 	unsigned int vmx_procbase = VMX_PROCBASE_CTL_MIN;
 	unsigned int vmx_procbase_2nd = VMX_PROCBASE_2ND_CTL_MIN;
 	unsigned int vmx_entry = VMX_ENTRY_CTL_MIN;
 	unsigned int vmx_exit  = VMX_EXIT_CTL_MIN;
+	unsigned long cr0_host_mask;
+	unsigned long cr0_shadow;
 
 	vmx_adjust_ctl_bit(vmx_pinbase,
 			   cap->pin_based_exec_fixed_0,
@@ -220,6 +222,19 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 	vcpu->procbase_2nd_ctl = vmx_procbase_2nd;
 	vcpu->entry_ctl = vmx_entry;
 	vcpu->exit_ctl = vmx_exit;
+
+	cr0_host_mask = cap->cr0_fixed1 | cap->cr0_fixed0;
+	if (vmx_cap_unrestrict_guest(vmx_procbase, vmx_procbase_2nd))
+		cr0_host_mask &= ~(X86_CR0_PG | X86_CR0_PE);
+	vmcs_write_natural(VMX_CR0_HOST_MASK, cr0_host_mask);
+	vcpu->cr0_host_mask = cr0_host_mask;
+
+	cr0_shadow = cap->cr0_fixed1;
+	if (vmx_cap_unrestrict_guest(vmx_procbase, vmx_procbase_2nd))
+		cr0_shadow &= ~(X86_CR0_PG | X86_CR0_PE);
+	cr0_shadow &= ~cap->cr0_fixed0;
+	vmcs_write_natural(VMX_CR0_READ_SHADOW, cr0_shadow);
+	vcpu->cr0_read_shadow = cr0_shadow;
 
 	return 0;
 }
@@ -380,9 +395,8 @@ static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	 */
 
 	val = cap->cr0_fixed1;
-	if ((vcpu->procbase_2nd_ctl & VMX_PROCBASE_2ND_UNRESTRICT_GUEST) &&
-	    (vcpu->procbase_2nd_ctl & VMX_PROCBASE_2ND_ENABLE_EPT) &&
-	    (vcpu->procbase_ctl & VMX_PROCBASE_ACTIVE_2ND_CONTROL))
+	if (vmx_cap_unrestrict_guest(vcpu->procbase_ctl,
+				     vcpu->procbase_2nd_ctl))
 		val &= ~(X86_CR0_PG | X86_CR0_PE);
 	akvm_vcpu_write_register(vcpu, SYS_CR0, val);
 	akvm_pr_info("guest cr0: 0x%lx\n", val);

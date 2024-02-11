@@ -146,6 +146,7 @@ union vmx_exit_reason {
 #define VMX_EXIT_EXCEP_NMI  0
 #define VMX_EXIT_INTR  1
 #define VMX_EXIT_VMCALL 18
+#define VMX_EXIT_CR 28
 #define VMX_EXIT_EPT_VIOLATION 48
 #define VMX_EXIT_MAX_NUMBER 78
 
@@ -174,6 +175,7 @@ typedef unsigned int vmcs_field;
 enum vmcs_filed_id {
 	VMX_INSTRUCTION_ERROR = 0x4400,
 	VMX_EXIT_REASON = 0x4402,
+	VMX_EXIT_QUALIFICATION = 0x6400,
 	VMX_EXIT_INTR_INFO = 0x4404,
 	VMX_EXIT_INTR_ERROR_CODE = 0x4406,
 	VMX_EXIT_GPA = 0x2400,
@@ -185,6 +187,8 @@ enum vmcs_filed_id {
 	VMX_EPTP_POINTER = 0x201a,
 	VMX_ENTRY_CTL = 0x4012,
 	VMX_EXIT_CTL = 0x400c,
+	VMX_CR0_HOST_MASK = 0x6000,
+	VMX_CR0_READ_SHADOW = 0x6004,
 
 	/* host 16bit state area */
 	VMX_HOST_ES = 0xc00,
@@ -418,6 +422,19 @@ static inline int invept(unsigned long ept_root)
 #define VMX_EPT_MEM_TYPE_WB 6
 #define VMX_EPT_ENABLE_AD_BITS BIT(6)
 #define VMX_EPT_WALK_LENGTH_SHIFT 3
+
+static inline bool vmx_cap_unrestrict_guest(unsigned int procbased,
+					    unsigned int procbased_2nd)
+{
+	if (!(procbased & VMX_PROCBASE_ACTIVE_2ND_CONTROL))
+		return false;
+	if (!(procbased_2nd & VMX_PROCBASE_2ND_UNRESTRICT_GUEST))
+		return false;
+	if (!(procbased_2nd & VMX_PROCBASE_2ND_ENABLE_EPT))
+		return false;
+	return true;
+}
+
 
 union vmx_segment_selector {
 	struct {
