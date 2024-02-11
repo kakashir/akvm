@@ -18,13 +18,13 @@ enum vcpu_run_state {
 
 enum reg_context_id {
 	GPR_RAX = 0,
-	GPR_RBX,
 	GPR_RCX,
 	GPR_RDX,
-	GPR_RDI,
-	GPR_RSI,
-	GPR_RBP,
+	GPR_RBX,
 	GPR_RSP,
+	GPR_RBP,
+	GPR_RSI,
+	GPR_RDI,
 	GPR_R8,
 	GPR_R9,
 	GPR_R10,
