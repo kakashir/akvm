@@ -8,6 +8,8 @@
 #include "vmx.h"
 #include "x86.h"
 
+#define AKVM_CR0_EMULATE_BITS X86_CR0_NE
+
 void __akvm_call_host_intr(unsigned long);
 typedef int (*vm_exit_handler)(struct vcpu_context *vcpu);
 
@@ -84,10 +86,101 @@ static int handle_vmcall(struct vcpu_context *vcpu)
 	return 1;
 }
 
+static int handle_cr0(struct vcpu_context *vcpu,
+		      bool write, int reg_id, unsigned long cr0_new)
+{
+	unsigned long cr0_shadow;
+	unsigned long cr0_guest;
+	unsigned long cr0;
+	unsigned long guest_own_changes;
+	unsigned long host_own_changes;
+	unsigned long unsupported = ~AKVM_CR0_EMULATE_BITS;
+	unsigned long cr0_guest_mask = ~vcpu->cr0_host_mask;
+
+	if (!write) {
+		pr_info("%s: unsupported cr0 read vmexit\n", __func__);
+		return -ENOTSUPP;
+	}
+
+	/* high 32 bit: Inject #GP */
+	if (cr0_new & X86_CR0_RESERVED_HIGH) {
+		/* TODO: inject #GP  */
+		pr_info("%s: need #GP injection for new cr0: 0x%lx\n", __func__, cr0_new);
+		return -ENOTSUPP;
+	}
+
+	if (vmx_cap_unrestrict_guest(vcpu->procbase_ctl,
+				     vcpu->procbase_2nd_ctl))
+		unsupported &= ~(X86_CR0_PG | X86_CR0_PE);
+
+	/*  low 32bit: ignore the reserved bits	*/
+	cr0_new &= ~X86_CR0_RESERVED;
+	cr0_guest = akvm_vcpu_read_register(vcpu, SYS_CR0);
+	cr0_shadow = vmcs_read_natural(VMX_CR0_READ_SHADOW);
+
+	cr0 = (cr0_guest & cr0_guest_mask) | (cr0_shadow & vcpu->cr0_host_mask);
+	host_own_changes = (cr0 ^ cr0_new) & vcpu->cr0_host_mask;
+	guest_own_changes = (cr0 ^ cr0_new) & cr0_guest_mask;
+
+	WARN_ON(!host_own_changes);
+
+	if (host_own_changes & unsupported) {
+		pr_info("%s: unsupported changed bits: 0x%lx\n",
+			__func__, host_own_changes);
+		return -ENOTSUPP;
+	}
+
+	cr0_guest &= ~guest_own_changes;
+	cr0_guest |= cr0_new & guest_own_changes;
+	akvm_vcpu_write_register(vcpu, SYS_CR0, cr0_guest);
+
+	cr0_shadow &= ~host_own_changes;
+	cr0_shadow |= cr0_new & host_own_changes;
+	vmcs_write_natural(VMX_CR0_READ_SHADOW, cr0_shadow);
+	vcpu->cr0_read_shadow = cr0_shadow;
+
+	return akvm_vcpu_skip_instruction(vcpu);
+}
+
+static int handle_cr(struct vcpu_context *vcpu)
+{
+	unsigned long qual;
+	unsigned long cr;
+	unsigned long type;
+	unsigned long val;
+	unsigned long reg;
+
+	qual = vmcs_read_natural(VMX_EXIT_QUALIFICATION);
+	cr = qual & GENMASK_ULL(3, 0);
+	type = (qual & GENMASK_ULL(5, 4)) >> 4;
+	reg = (qual & GENMASK_ULL(11, 8)) >> 8;
+	val = akvm_vcpu_read_register(vcpu, reg);
+
+	if (type >= 2) {
+		pr_info("Unsupported CR EXIT: CLTS/LMSW instruction\n");
+		return -ENOTSUPP;
+	}
+
+	vcpu->exit_instruction_len =
+		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
+
+	switch (cr) {
+	case 0:
+		return handle_cr0(vcpu, !type, reg, val);
+	default:
+		break;
+	}
+
+	pr_info("Unsupported CR EXIT: cr:0x%lx type:0x%lx reg:0x%lx val:0x%lx\n",
+		cr, type, reg, val);
+	return -ENOTSUPP;
+}
+
 static vm_exit_handler exit_handler[VMX_EXIT_MAX_NUMBER] =
 {
 	[VMX_EXIT_INTR] = handle_ignore,
 	[VMX_EXIT_VMCALL] = handle_vmcall,
+	[VMX_EXIT_CR] = handle_cr,
 	[VMX_EXIT_EPT_VIOLATION] = handle_ept_violation,
 };
 

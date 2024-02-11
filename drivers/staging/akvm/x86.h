@@ -20,6 +20,10 @@
 #define X86_PAT_UC_MINUS 7
 #define X86_PAT_DEF_VAL 0x0007040600070406ULL
 
+#define X86_CR0_RESERVED   (GENMASK_ULL(15, 6) | \
+			    GENMASK_ULL(28, 19) | BIT_ULL(17))
+#define X86_CR0_RESERVED_HIGH GENMASK_ULL(63, 32)
+
 static inline u16 get_cs(void)
 {
 	unsigned int val;
