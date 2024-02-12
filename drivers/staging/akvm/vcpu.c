@@ -871,6 +871,17 @@ irq_enable:
 	return r;
 }
 
+static int akvm_ioctl_set_rip(struct vcpu_context *vcpu, unsigned long param)
+{
+	vcpu_load(vcpu);
+
+	akvm_vcpu_write_register(vcpu, SYS_RIP, param);
+
+	vcpu_put(vcpu, false);
+
+	return 0;
+}
+
 void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu)
 {
 	struct vcpu_context *vcpu =
@@ -948,6 +959,9 @@ static long akvm_vcpu_ioctl(struct file *f, unsigned int ioctl,
 	switch(ioctl) {
 	case AKVM_RUN:
 		r = akvm_ioctl_run(vcpu, param);
+		break;
+	case AKVM_VCPU_SET_RIP:
+		r = akvm_ioctl_set_rip(vcpu, param);
 		break;
 	default:
 		r = -EINVAL;
