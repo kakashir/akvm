@@ -24,6 +24,13 @@
 			    GENMASK_ULL(28, 19) | BIT_ULL(17))
 #define X86_CR0_RESERVED_HIGH GENMASK_ULL(63, 32)
 
+/* remove the bit from this if they're supported */
+#define X86_CR4_RESERVED (GENMASK_ULL(63, 25) |		    \
+			  X86_CR4_CET | X86_CR4_PKE |	    \
+			  BIT_ULL(19) | BIT_ULL(15) |	    \
+			  X86_CR4_SMXE | X86_CR4_LA57 | \
+			  X86_CR4_PCE | X86_CR4_MCE)
+
 static inline u16 get_cs(void)
 {
 	unsigned int val;

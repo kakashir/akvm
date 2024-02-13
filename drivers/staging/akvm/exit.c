@@ -9,6 +9,7 @@
 #include "x86.h"
 
 #define AKVM_CR0_EMULATE_BITS X86_CR0_NE
+#define AKVM_CR4_EMULATE_BITS X86_CR4_VMXE
 
 void __akvm_call_host_intr(unsigned long);
 typedef int (*vm_exit_handler)(struct vcpu_context *vcpu);
@@ -142,6 +143,61 @@ static int handle_cr0(struct vcpu_context *vcpu,
 	return akvm_vcpu_skip_instruction(vcpu);
 }
 
+static int handle_cr4(struct vcpu_context *vcpu,
+		      bool write, int reg_id, unsigned long cr4_new)
+{
+	unsigned long cr4_shadow;
+	unsigned long cr4_guest;
+	unsigned long cr4;
+	unsigned long guest_own_changes;
+	unsigned long host_own_changes;
+	unsigned long unsupported = ~AKVM_CR4_EMULATE_BITS;
+	unsigned long cr4_guest_mask = ~vcpu->cr4_host_mask;
+	unsigned long reserved;
+
+	if (!write) {
+		pr_info("%s: unsupported cr4 read vmexit\n", __func__);
+		return -ENOTSUPP;
+	}
+
+	reserved = X86_CR4_RESERVED;
+	if (boot_cpu_has(X86_FEATURE_LA57))
+		reserved &= ~X86_CR4_LA57;
+
+	/* high 32 bit: Inject #GP */
+	if (cr4_new & reserved) {
+		/* TODO: inject #GP  */
+		pr_info("%s: need #GP injection for new cr4: 0x%lx\n", __func__, cr4_new);
+		return -ENOTSUPP;
+	}
+
+	cr4_guest = akvm_vcpu_read_register(vcpu, SYS_CR4);
+	cr4_shadow = vmcs_read_natural(VMX_CR4_READ_SHADOW);
+
+	cr4 = (cr4_guest & cr4_guest_mask) | (cr4_shadow & vcpu->cr4_host_mask);
+	host_own_changes = (cr4 ^ cr4_new) & vcpu->cr4_host_mask;
+	guest_own_changes = (cr4 ^ cr4_new) & cr4_guest_mask;
+
+	WARN_ON(!host_own_changes);
+
+	if (host_own_changes & unsupported) {
+		pr_info("%s: unsupported changed bits: 0x%lx\n",
+			__func__, host_own_changes);
+		return -ENOTSUPP;
+	}
+
+	cr4_guest &= ~guest_own_changes;
+	cr4_guest |= cr4_new & guest_own_changes;
+	akvm_vcpu_write_register(vcpu, SYS_CR4, cr4_guest);
+
+	cr4_shadow &= ~host_own_changes;
+	cr4_shadow |= cr4_new & host_own_changes;
+	vmcs_write_natural(VMX_CR4_READ_SHADOW, cr4_shadow);
+	vcpu->cr4_read_shadow = cr4_shadow;
+
+	return akvm_vcpu_skip_instruction(vcpu);
+}
+
 static int handle_cr(struct vcpu_context *vcpu)
 {
 	unsigned long qual;
@@ -167,6 +223,8 @@ static int handle_cr(struct vcpu_context *vcpu)
 	switch (cr) {
 	case 0:
 		return handle_cr0(vcpu, !type, reg, val);
+	case 4:
+		return handle_cr4(vcpu, !type, reg, val);
 	default:
 		break;
 	}
