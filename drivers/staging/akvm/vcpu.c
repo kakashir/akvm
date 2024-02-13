@@ -172,6 +172,8 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 	unsigned int vmx_exit  = VMX_EXIT_CTL_MIN;
 	unsigned long cr0_host_mask;
 	unsigned long cr0_shadow;
+	unsigned long cr4_host_mask;
+	unsigned long cr4_shadow;
 
 	vmx_adjust_ctl_bit(vmx_pinbase,
 			   cap->pin_based_exec_fixed_0,
@@ -236,6 +238,14 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 	vmcs_write_natural(VMX_CR0_READ_SHADOW, cr0_shadow);
 	vcpu->cr0_read_shadow = cr0_shadow;
 
+	cr4_host_mask = cap->cr4_fixed1 | cap->cr4_fixed0;
+	vmcs_write_natural(VMX_CR4_HOST_MASK, cr4_host_mask);
+	vcpu->cr4_host_mask = cr4_host_mask;
+
+	cr4_shadow = cap->cr4_fixed1;
+	cr4_shadow &= ~cap->cr4_fixed0;
+	vmcs_write_natural(VMX_CR4_READ_SHADOW, cr4_shadow);
+	vcpu->cr4_read_shadow = cr4_shadow;
 	return 0;
 }
 
@@ -406,7 +416,7 @@ static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	akvm_pr_info("guest cr3: 0x%lx\n", val);
 
 	val = cap->cr4_fixed1;
-	vmcs_write_natural(VMX_GUEST_CR4, val);
+	akvm_vcpu_write_register(vcpu, SYS_CR4, val);
 	akvm_pr_info("guest cr4: 0x%lx\n", val);
 
 	val = X86_DR7_RESERVED_1;
@@ -659,6 +669,7 @@ static void load_guest_state(struct vcpu_context *vcpu,
 		{ .reg_id = SYS_RIP, .vmcs_id = VMX_GUEST_RIP },
 		{ .reg_id = SYS_RFLAGS, .vmcs_id = VMX_GUEST_RFLAGS },
 		{ .reg_id = SYS_CR0, .vmcs_id = VMX_GUEST_CR0 },
+		{ .reg_id = SYS_CR4, .vmcs_id = VMX_GUEST_CR4 },
 	};
 
 	for (int i = 0; i < sizeof(regs) / sizeof(regs[0]); ++i) {
@@ -1125,6 +1136,10 @@ unsigned long akvm_vcpu_read_register(struct vcpu_context *vcpu,
 	case SYS_CR0:
 		vcpu->guest_state.regs.val[id]
 			= vmcs_read_natural(VMX_GUEST_CR0);
+		break;
+	case SYS_CR4:
+		vcpu->guest_state.regs.val[id]
+			= vmcs_read_natural(VMX_GUEST_CR4);
 		break;
 	default:
 		WARN_ON(1);

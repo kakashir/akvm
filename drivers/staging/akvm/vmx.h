@@ -189,6 +189,8 @@ enum vmcs_filed_id {
 	VMX_EXIT_CTL = 0x400c,
 	VMX_CR0_HOST_MASK = 0x6000,
 	VMX_CR0_READ_SHADOW = 0x6004,
+	VMX_CR4_HOST_MASK = 0x6002,
+	VMX_CR4_READ_SHADOW = 0x6006,
 
 	/* host 16bit state area */
 	VMX_HOST_ES = 0xc00,

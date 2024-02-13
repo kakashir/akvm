@@ -38,6 +38,7 @@ enum reg_context_id {
 	SYS_RFLAGS,
 	SYS_CR0,
 	SYS_CR2,
+	SYS_CR4,
 	SYS_CR8,
 
 	REG_MAX,
@@ -90,6 +91,8 @@ struct vcpu_context {
 	unsigned int exit_ctl;
 	unsigned long cr0_host_mask;
 	unsigned long cr0_read_shadow;
+	unsigned long cr4_host_mask;
+	unsigned long cr4_read_shadow;
 
 	union vmx_exit_reason exit;
 	union vmx_intr_info intr_info;
