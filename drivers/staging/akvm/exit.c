@@ -87,6 +87,24 @@ static int handle_vmcall(struct vcpu_context *vcpu)
 	return 1;
 }
 
+static void __update_cr_guest(struct vcpu_context *vcpu,
+			      unsigned long val, unsigned long new,
+			      unsigned long mask, unsigned int reg_id)
+{
+	val = bits_clear_set_mask(val, new, mask);
+	akvm_vcpu_write_register(vcpu, reg_id, val);
+}
+
+static void __update_cr_read_shadow(unsigned long val, unsigned long new,
+				    unsigned long mask, unsigned int vmcs_id,
+				    unsigned long *update)
+{
+	val = bits_clear_set_mask(val, new, mask);
+	vmcs_write_natural(vmcs_id, val);
+	if (update)
+		*update = val;
+}
+
 static int handle_cr0(struct vcpu_context *vcpu,
 		      bool write, int reg_id, unsigned long cr0_new)
 {
@@ -119,7 +137,8 @@ static int handle_cr0(struct vcpu_context *vcpu,
 	cr0_guest = akvm_vcpu_read_register(vcpu, SYS_CR0);
 	cr0_shadow = vmcs_read_natural(VMX_CR0_READ_SHADOW);
 
-	cr0 = (cr0_guest & cr0_guest_mask) | (cr0_shadow & vcpu->cr0_host_mask);
+	cr0 = bits_or_mask(cr0_guest, cr0_guest_mask,
+			   cr0_shadow, vcpu->cr0_host_mask);
 	host_own_changes = (cr0 ^ cr0_new) & vcpu->cr0_host_mask;
 	guest_own_changes = (cr0 ^ cr0_new) & cr0_guest_mask;
 
@@ -131,14 +150,9 @@ static int handle_cr0(struct vcpu_context *vcpu,
 		return -ENOTSUPP;
 	}
 
-	cr0_guest &= ~guest_own_changes;
-	cr0_guest |= cr0_new & guest_own_changes;
-	akvm_vcpu_write_register(vcpu, SYS_CR0, cr0_guest);
-
-	cr0_shadow &= ~host_own_changes;
-	cr0_shadow |= cr0_new & host_own_changes;
-	vmcs_write_natural(VMX_CR0_READ_SHADOW, cr0_shadow);
-	vcpu->cr0_read_shadow = cr0_shadow;
+	__update_cr_guest(vcpu, cr0_guest, cr0_new, guest_own_changes, SYS_CR0);
+	__update_cr_read_shadow(cr0_shadow, cr0_new, host_own_changes,
+				VMX_CR0_READ_SHADOW, &vcpu->cr0_read_shadow);
 
 	return akvm_vcpu_skip_instruction(vcpu);
 }
@@ -164,7 +178,6 @@ static int handle_cr4(struct vcpu_context *vcpu,
 	if (boot_cpu_has(X86_FEATURE_LA57))
 		reserved &= ~X86_CR4_LA57;
 
-	/* high 32 bit: Inject #GP */
 	if (cr4_new & reserved) {
 		/* TODO: inject #GP  */
 		pr_info("%s: need #GP injection for new cr4: 0x%lx\n", __func__, cr4_new);
@@ -174,7 +187,8 @@ static int handle_cr4(struct vcpu_context *vcpu,
 	cr4_guest = akvm_vcpu_read_register(vcpu, SYS_CR4);
 	cr4_shadow = vmcs_read_natural(VMX_CR4_READ_SHADOW);
 
-	cr4 = (cr4_guest & cr4_guest_mask) | (cr4_shadow & vcpu->cr4_host_mask);
+	cr4 = bits_or_mask(cr4_guest, cr4_guest_mask,
+			   cr4_shadow, vcpu->cr4_host_mask);
 	host_own_changes = (cr4 ^ cr4_new) & vcpu->cr4_host_mask;
 	guest_own_changes = (cr4 ^ cr4_new) & cr4_guest_mask;
 
@@ -186,14 +200,9 @@ static int handle_cr4(struct vcpu_context *vcpu,
 		return -ENOTSUPP;
 	}
 
-	cr4_guest &= ~guest_own_changes;
-	cr4_guest |= cr4_new & guest_own_changes;
-	akvm_vcpu_write_register(vcpu, SYS_CR4, cr4_guest);
-
-	cr4_shadow &= ~host_own_changes;
-	cr4_shadow |= cr4_new & host_own_changes;
-	vmcs_write_natural(VMX_CR4_READ_SHADOW, cr4_shadow);
-	vcpu->cr4_read_shadow = cr4_shadow;
+	__update_cr_guest(vcpu, cr4_guest, cr4_new, guest_own_changes, SYS_CR4);
+	__update_cr_read_shadow(cr4_shadow, cr4_new, host_own_changes,
+				VMX_CR4_READ_SHADOW, &vcpu->cr4_read_shadow);
 
 	return akvm_vcpu_skip_instruction(vcpu);
 }

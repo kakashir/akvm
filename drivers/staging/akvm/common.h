@@ -25,4 +25,9 @@ typedef unsigned long gfn;
 typedef unsigned long hpa;
 typedef unsigned long hfn;
 
+unsigned long bits_clear_set_mask(unsigned long val, unsigned long new,
+				  unsigned long mask);
+
+unsigned long bits_or_mask(unsigned long a, unsigned long mask_a,
+			   unsigned long b, unsigned long mask_b);
 #endif
