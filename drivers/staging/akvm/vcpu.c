@@ -39,6 +39,7 @@
 
 #define VMX_ENTRY_CTL_MIN			\
 	(VMX_ENTRY_LOAD_DR_DEBUGCTL |		\
+	 VMX_ENTRY_IA32E |			\
 	 VMX_ENTRY_LOAD_PERF_GLOBAL_CTL |	\
 	 VMX_ENTRY_LOAD_PAT |			\
 	 VMX_ENTRY_LOAD_EFER |			\
@@ -205,6 +206,8 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 		pr_err("unsupported vmx entry:0x%x\n", vmx_entry);
 		return -EINVAL;
 	}
+	/* guest starts from non-ia32e mode so remove this */
+	vmx_entry &= ~VMX_ENTRY_IA32E;
 
 	vmx_adjust_ctl_bit(vmx_exit,
 			   cap->vmexit_fixed0, cap->vmexit_fixed1);
@@ -225,9 +228,8 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 	vcpu->entry_ctl = vmx_entry;
 	vcpu->exit_ctl = vmx_exit;
 
-	cr0_host_mask = cap->cr0_fixed1 | cap->cr0_fixed0;
-	if (vmx_cap_unrestrict_guest(vmx_procbase, vmx_procbase_2nd))
-		cr0_host_mask &= ~(X86_CR0_PG | X86_CR0_PE);
+	cr0_host_mask = cap->cr0_fixed1 | cap->cr0_fixed0 |
+		AKVM_CR0_EMULATE_BITS;
 	vmcs_write_natural(VMX_CR0_HOST_MASK, cr0_host_mask);
 	vcpu->cr0_host_mask = cr0_host_mask;
 
@@ -238,7 +240,8 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 	vmcs_write_natural(VMX_CR0_READ_SHADOW, cr0_shadow);
 	vcpu->cr0_read_shadow = cr0_shadow;
 
-	cr4_host_mask = cap->cr4_fixed1 | cap->cr4_fixed0;
+	cr4_host_mask = cap->cr4_fixed1 | cap->cr4_fixed0 |
+		AKVM_CR4_EMULATE_BITS;
 	vmcs_write_natural(VMX_CR4_HOST_MASK, cr4_host_mask);
 	vcpu->cr4_host_mask = cr4_host_mask;
 
@@ -506,7 +509,7 @@ static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	tr_seg.base = 0;
 	tr_seg.limit= 0xffff;
 	tr_seg.selector.val = 0;
-	tr_seg.ar.desc_type = X86_SEGMENT_TYPE_TR_TSS_16_BUSY;
+	tr_seg.ar.desc_type = X86_SEGMENT_TYPE_TR_TSS_32_64_BUSY;
 	tr_seg.ar.s = false;
 	tr_seg.ar.dpl = 0;
 	tr_seg.ar.p = true;
@@ -553,7 +556,10 @@ static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	vmcs_write_natural(VMX_GUEST_IA32_SYSENTER_ESP, 0);
 	vmcs_write_natural(VMX_GUEST_IA32_SYSENTER_EIP, 0);
 	vmcs_write_64(VMX_GUEST_IA32_PERF_GLOBAL_CTL, 0);
+
 	vmcs_write_64(VMX_GUEST_IA32_PAT, X86_PAT_DEF_VAL);
+	vcpu->guest_state.msr_pat.val = X86_PAT_DEF_VAL;
+
 	vmcs_write_64(VMX_GUEST_IA32_EFER, 0);
 	/* vmcs_write_64(VMX_GUEST_IA32_BNDCFGS, 0); */
 	vmcs_write_64(VMX_GUEST_IA32_RTIT_CTL, 0);
