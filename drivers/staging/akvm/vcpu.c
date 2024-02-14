@@ -771,7 +771,8 @@ static int vm_enter_exit(struct vcpu_context *vcpu)
 		vcpu->exit.val = vmcs_read_32(VMX_EXIT_REASON);
 		vcpu->intr_info.val = vmcs_read_32(VMX_EXIT_INTR_INFO);
 		vcpu->intr_error_code = vmcs_read_32(VMX_EXIT_INTR_ERROR_CODE);
-		vcpu->vmcs.launched = true;
+		if (!vcpu->exit.failed)
+			vcpu->vmcs.launched = true;
 		return r;
 	}
 
@@ -881,6 +882,12 @@ irq_enable:
 
 		if (!r && !vcpu->exit.failed)
 			r = handle_vm_exit(vcpu);
+
+		if (vcpu->exit.failed) {
+			pr_info("%s: vmentry failed: 0x%x\n",
+				__func__, vcpu->exit.val);
+			r = -1;
+		}
 	}
  exit:
 	vcpu_put(vcpu, false);
