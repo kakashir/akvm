@@ -8,9 +8,6 @@
 #include "vmx.h"
 #include "x86.h"
 
-#define AKVM_CR0_EMULATE_BITS X86_CR0_NE
-#define AKVM_CR4_EMULATE_BITS X86_CR4_VMXE
-
 void __akvm_call_host_intr(unsigned long);
 typedef int (*vm_exit_handler)(struct vcpu_context *vcpu);
 
@@ -87,6 +84,107 @@ static int handle_vmcall(struct vcpu_context *vcpu)
 	return 1;
 }
 
+
+static int handle_rdmsr(struct vcpu_context *vcpu)
+{
+	unsigned long index = akvm_vcpu_read_register(vcpu, GPR_RCX);
+	msr_val_t *val;
+
+	vcpu->exit_instruction_len =
+		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
+
+	switch(index) {
+	case MSR_EFER:
+		val = &vcpu->guest_state.msr_efer;
+		break;
+	case MSR_IA32_CR_PAT:
+		val = &vcpu->guest_state.msr_pat;
+		break;
+	default:
+		pr_info("%s: unsupoorted msr index:0x%lx\n", __func__, index);
+		return -ENOTSUPP;
+	}
+
+	akvm_vcpu_write_register(vcpu, GPR_RDX, val->high);
+	akvm_vcpu_write_register(vcpu, GPR_RAX, val->low);
+	return akvm_vcpu_skip_instruction(vcpu);
+}
+
+static void __update_vmcs_guest_ia32e(struct vcpu_context *vcpu)
+{
+	unsigned long cr0 = akvm_vcpu_read_register(vcpu, SYS_CR0);
+	unsigned long cr4 = akvm_vcpu_read_register(vcpu, SYS_CR4);
+	unsigned long efer = vcpu->guest_state.msr_efer.val;
+
+	if ((cr0 & X86_CR0_PE) && (cr0 & X86_CR0_PG) &&
+	    (cr4 & X86_CR4_PAE) && (efer & EFER_LME)) {
+		vcpu->entry_ctl |= VMX_ENTRY_IA32E;
+		/*
+		  LMA need to sync with LME, or CR0.PG if VMX_ENTRY_IA32E = 1.
+		  SDM Vol.3 27.3.1.1
+		*/
+		vcpu->guest_state.msr_efer.val |= EFER_LMA;
+	} else {
+		vcpu->entry_ctl &= ~VMX_ENTRY_IA32E;
+		vcpu->guest_state.msr_efer.val &= ~EFER_LMA;
+	}
+
+	vmcs_write_64(VMX_GUEST_IA32_EFER,
+			      vcpu->guest_state.msr_efer.val);
+	vmcs_write_32(VMX_ENTRY_CTL, vcpu->entry_ctl);
+}
+
+static int handle_wrmsr_efer(struct vcpu_context *vcpu,
+			     unsigned long index,
+			     msr_val_t *val)
+{
+	unsigned long efer_old = vcpu->guest_state.msr_efer.val;
+	unsigned long efer_new = val->val;
+	unsigned long change = efer_old ^ efer_new;
+	unsigned long reserved = GENMASK_ULL(63, 12) |
+		GENMASK_ULL(7, 1) | BIT_ULL(9);
+
+	if (change & reserved) {
+		pr_info("%s: Need inject #GP to msr index:0x%lx low:0x%x high:0x%x\n",
+			__func__, index, val->low, val->high);
+		return -ENOTSUPP;
+	}
+
+	efer_new &= ~EFER_LMA;
+	vcpu->guest_state.msr_efer.val = efer_new;
+	vmcs_write_64(VMX_GUEST_IA32_EFER, efer_new);
+
+	__update_vmcs_guest_ia32e(vcpu);
+
+	return akvm_vcpu_skip_instruction(vcpu);
+}
+
+static int handle_wrmsr(struct vcpu_context *vcpu)
+{
+	unsigned long index;
+	msr_val_t msr_val;
+
+	vcpu->exit_instruction_len =
+		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
+
+	index = akvm_vcpu_read_register(vcpu, GPR_RCX);
+	msr_val.low = akvm_vcpu_read_register(vcpu, GPR_RAX);
+	msr_val.high = akvm_vcpu_read_register(vcpu, GPR_RDX);
+
+	switch(index) {
+	case MSR_EFER:
+		return handle_wrmsr_efer(vcpu, index, &msr_val);
+	case MSR_IA32_CR_PAT:
+		vmcs_write_64(VMX_GUEST_IA32_PAT, msr_val.val);
+		vcpu->guest_state.msr_pat.val = msr_val.val;
+		return akvm_vcpu_skip_instruction(vcpu);
+	default:
+		pr_info("unsupported wrmsr: index:0x%lx data_low:0x%x data_high:0x%x\n",
+			index, msr_val.low, msr_val.high);
+		return -ENOTSUPP;
+	}
+}
+
 static void __update_cr_guest(struct vcpu_context *vcpu,
 			      unsigned long val, unsigned long new,
 			      unsigned long mask, unsigned int reg_id)
@@ -115,6 +213,7 @@ static int handle_cr0(struct vcpu_context *vcpu,
 	unsigned long host_own_changes;
 	unsigned long unsupported = ~AKVM_CR0_EMULATE_BITS;
 	unsigned long cr0_guest_mask = ~vcpu->cr0_host_mask;
+	bool flush_tlb = false;
 
 	if (!write) {
 		pr_info("%s: unsupported cr0 read vmexit\n", __func__);
@@ -150,9 +249,26 @@ static int handle_cr0(struct vcpu_context *vcpu,
 		return -ENOTSUPP;
 	}
 
+	/*
+	  Sync PE and PG also to guest val, they're intercepted
+	  only for checking ia32e mode enabling
+	*/
+	if (host_own_changes & X86_CR0_PE)
+		guest_own_changes |= X86_CR0_PE;
+
+	if (host_own_changes & X86_CR0_PG) {
+		guest_own_changes |= X86_CR0_PG;
+		if (!(cr0_new & X86_CR0_PG))
+			flush_tlb = true;
+	}
+
 	__update_cr_guest(vcpu, cr0_guest, cr0_new, guest_own_changes, SYS_CR0);
 	__update_cr_read_shadow(cr0_shadow, cr0_new, host_own_changes,
 				VMX_CR0_READ_SHADOW, &vcpu->cr0_read_shadow);
+	__update_vmcs_guest_ia32e(vcpu);
+
+	if (flush_tlb)
+		akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_FLUSH_TLB, false);
 
 	return akvm_vcpu_skip_instruction(vcpu);
 }
@@ -168,6 +284,7 @@ static int handle_cr4(struct vcpu_context *vcpu,
 	unsigned long unsupported = ~AKVM_CR4_EMULATE_BITS;
 	unsigned long cr4_guest_mask = ~vcpu->cr4_host_mask;
 	unsigned long reserved;
+	bool flush_tlb = false;
 
 	if (!write) {
 		pr_info("%s: unsupported cr4 read vmexit\n", __func__);
@@ -200,9 +317,27 @@ static int handle_cr4(struct vcpu_context *vcpu,
 		return -ENOTSUPP;
 	}
 
+	/*
+	  Sync PAE also to guest val, they're intercepted
+	  only for checking ia32e mode enabling
+	*/
+	if (host_own_changes & X86_CR4_PAE) {
+		guest_own_changes |= X86_CR4_PAE;
+		/*
+		  SDM Vol.3 4.10.4.1:
+		  all TLB/paging-structure caches are invalidated when
+		  PAE values changes, not only 0 -> 1
+		 */
+		flush_tlb = true;
+	}
+
 	__update_cr_guest(vcpu, cr4_guest, cr4_new, guest_own_changes, SYS_CR4);
 	__update_cr_read_shadow(cr4_shadow, cr4_new, host_own_changes,
 				VMX_CR4_READ_SHADOW, &vcpu->cr4_read_shadow);
+	__update_vmcs_guest_ia32e(vcpu);
+
+	if (flush_tlb)
+		akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_FLUSH_TLB, false);
 
 	return akvm_vcpu_skip_instruction(vcpu);
 }
@@ -248,6 +383,8 @@ static vm_exit_handler exit_handler[VMX_EXIT_MAX_NUMBER] =
 	[VMX_EXIT_INTR] = handle_ignore,
 	[VMX_EXIT_VMCALL] = handle_vmcall,
 	[VMX_EXIT_CR] = handle_cr,
+	[VMX_EXIT_RDMSR] = handle_rdmsr,
+	[VMX_EXIT_WRMSR] = handle_wrmsr,
 	[VMX_EXIT_EPT_VIOLATION] = handle_ept_violation,
 };
 

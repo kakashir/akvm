@@ -147,6 +147,8 @@ union vmx_exit_reason {
 #define VMX_EXIT_INTR  1
 #define VMX_EXIT_VMCALL 18
 #define VMX_EXIT_CR 28
+#define VMX_EXIT_RDMSR 31
+#define VMX_EXIT_WRMSR 32
 #define VMX_EXIT_EPT_VIOLATION 48
 #define VMX_EXIT_MAX_NUMBER 78
 
@@ -403,6 +405,7 @@ static inline int invept(unsigned long ept_root)
 #define VMX_PROCBASE_2ND_UNRESTRICT_GUEST BIT(7)
 
 #define VMX_ENTRY_LOAD_DR_DEBUGCTL BIT(2)
+#define VMX_ENTRY_IA32E BIT(9)
 #define VMX_ENTRY_LOAD_PERF_GLOBAL_CTL  BIT(13)
 #define VMX_ENTRY_LOAD_PAT BIT(14)
 #define VMX_ENTRY_LOAD_EFER BIT(15)

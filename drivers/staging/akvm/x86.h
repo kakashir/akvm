@@ -4,6 +4,13 @@
 #include <linux/types.h>
 
 #define MSR_IA32_PKRS 0x6e1
+typedef union msr_val {
+	struct {
+		unsigned int low;
+		unsigned int high;
+	};
+	unsigned long val;
+} msr_val_t;
 
 #define X86_FLAGS_RESERVED_1 BIT(1)
 #define X86_DR7_RESERVED_1 BIT(10)
@@ -11,6 +18,7 @@
 #define X86_SEGMENT_TYPE_DATA_RWA 3
 #define X86_SEGMENT_TYPE_LDT 2
 #define X86_SEGMENT_TYPE_TR_TSS_16_BUSY 3
+#define X86_SEGMENT_TYPE_TR_TSS_32_64_BUSY 11
 
 #define X86_PAT_UC 0
 #define X86_PAT_WC 1
