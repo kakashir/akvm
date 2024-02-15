@@ -821,6 +821,17 @@ static int akvm_vcpu_handle_requests_irqoff(struct vcpu_context *vcpu)
 	return r;
 }
 
+static void dump_vmcs(struct vcpu_context *vcpu)
+{
+	pr_info("Dump VMCS 0x%p:\n", vcpu->vmcs.vmcs);
+	pr_info(" guest cr0: 0x%lx: val\n", vmcs_read_natural(VMX_GUEST_CR0));
+	pr_info(" guest cr3: 0x%lx: val\n", vmcs_read_natural(VMX_GUEST_CR3));
+	pr_info(" guest cr4: 0x%lx: val\n", vmcs_read_natural(VMX_GUEST_CR4));
+	pr_info(" guest efer: 0x%lx: val\n", vmcs_read_64(VMX_GUEST_IA32_EFER));
+	pr_info(" guest rip: 0x%lx: val\n", vmcs_read_natural(VMX_GUEST_RIP));
+	pr_info(" guest rsp: 0x%lx: val\n", vmcs_read_natural(VMX_GUEST_RSP));
+}
+
 static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 {
 	unsigned long flags;
@@ -888,6 +899,8 @@ irq_enable:
 				__func__, vcpu->exit.val);
 			r = -1;
 		}
+		if (r < 0)
+			dump_vmcs(vcpu);
 	}
  exit:
 	vcpu_put(vcpu, false);
