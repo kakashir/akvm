@@ -193,6 +193,8 @@ enum vmcs_filed_id {
 	VMX_CR0_READ_SHADOW = 0x6004,
 	VMX_CR4_HOST_MASK = 0x6002,
 	VMX_CR4_READ_SHADOW = 0x6006,
+	VMX_MSR_BITMAP = 0x2004,
+	VMX_MSR_BITMAP_HIGH = 0x2005,
 
 	/* host 16bit state area */
 	VMX_HOST_ES = 0xc00,
@@ -399,6 +401,7 @@ static inline int invept(unsigned long ept_root)
 
 #define VMX_PROCBASE_ACTIVE_3RD_CONTROL BIT(17)
 #define VMX_PROCBASE_UNCOND_IO_EXIT BIT(24)
+#define VMX_PROCBASE_MSR_BITMAP BIT(28)
 #define VMX_PROCBASE_ACTIVE_2ND_CONTROL BIT(31)
 
 #define VMX_PROCBASE_2ND_ENABLE_EPT BIT(1)

@@ -77,6 +77,7 @@ struct vm_guest_state {
 struct vm_vmcs {
 	struct list_head entry;
 	struct vmx_vmcs *vmcs;
+	unsigned long msr_bitmap;
 	int launched;
 	int last_cpu;
 };
@@ -167,5 +168,11 @@ void akvm_vcpu_write_register(struct vcpu_context *vcpu,
 			      enum reg_context_id id,
 			      unsigned long val);
 int akvm_vcpu_skip_instruction(struct vcpu_context *vcpu);
+
+void akvm_vcpu_intercept_msr_read(struct vcpu_context *vcpu, unsigned int msr);
+void akvm_vcpu_intercept_msr_write(struct vcpu_context *vcpu, unsigned int msr);
+void akvm_vcpu_passthru_msr_read(struct vcpu_context *vcpu, unsigned int msr);
+void akvm_vcpu_passthru_msr_write(struct vcpu_context *vcpu, unsigned int msr);
+
 
 #endif
