@@ -31,7 +31,8 @@
 
 #define VMX_PROCBASE_CTL_MIN			\
 	(VMX_PROCBASE_ACTIVE_2ND_CONTROL |	\
-	 VMX_PROCBASE_UNCOND_IO_EXIT)
+	 VMX_PROCBASE_UNCOND_IO_EXIT |		\
+	 VMX_PROCBASE_MSR_BITMAP)
 
 #define VMX_PROCBASE_2ND_CTL_MIN		\
 	(VMX_PROCBASE_2ND_ENABLE_EPT |		\
@@ -58,9 +59,14 @@
 	 VMX_EXIT_LOAD_PKRS |			\
 	 VMX_EXIT_SAVE_PERF_GLOBAL_CTL)
 
+static unsigned int msr_passthru[] = {
+	MSR_IA32_CR_PAT,
+};
+
 static void free_vmcs(struct vcpu_context *vcpu)
 {
 	kfree(vcpu->vmcs.vmcs);
+	free_page(vcpu->vmcs.msr_bitmap);
 }
 
 static int alloc_vmcs(struct vcpu_context *vcpu)
@@ -73,6 +79,12 @@ static int alloc_vmcs(struct vcpu_context *vcpu)
 		return -ENOMEM;
 	}
 	vcpu->vmcs.last_cpu = -1;
+
+	vcpu->vmcs.msr_bitmap = __get_free_page(GFP_KERNEL_ACCOUNT);
+	if (!vcpu->vmcs.msr_bitmap) {
+		free_vmcs(vcpu);
+		return -ENOMEM;
+	}
 
 	return 0;
 }
@@ -249,6 +261,16 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 	cr4_shadow &= ~cap->cr4_fixed0;
 	vmcs_write_natural(VMX_CR4_READ_SHADOW, cr4_shadow);
 	vcpu->cr4_read_shadow = cr4_shadow;
+
+	/* by defualt interfcept all msr read/write */
+	memset((void*)vcpu->vmcs.msr_bitmap, 0xff, PAGE_SIZE);
+	vmcs_write_64(VMX_MSR_BITMAP, __pa(vcpu->vmcs.msr_bitmap));
+
+	for (int i = 0; i < ARRAY_SIZE(msr_passthru); ++i) {
+		akvm_vcpu_passthru_msr_read(vcpu, msr_passthru[i]);
+		akvm_vcpu_passthru_msr_write(vcpu, msr_passthru[i]);
+	}
+
 	return 0;
 }
 
@@ -1199,4 +1221,48 @@ int akvm_vcpu_skip_instruction(struct vcpu_context *vcpu)
 	akvm_vcpu_write_register(vcpu, SYS_RIP,
 				 rip + vcpu->exit_instruction_len);
 	return 0;
+}
+
+static void __vcpu_set_msr_intercept(struct vcpu_context *vcpu,
+				     unsigned int msr, bool intercept,
+				     bool write)
+{
+	u8 *p = (void*)vcpu->vmcs.msr_bitmap;
+	u8 mask;
+
+	WARN_ON(msr >= X86_MSR_LOW_END && msr < X86_MSR_HIGH_START);
+	WARN_ON(msr >= X86_MSR_HIGH_END);
+
+	if (msr & X86_MSR_HIGH_START)
+		p += 1024 / sizeof(*p);
+	if (write)
+		p += 2048 / sizeof(*p);
+
+	msr &= ~X86_MSR_HIGH_START;
+	p += msr / 8;
+	mask = 1 << (msr & 0x7);
+	if (intercept)
+		*p |= mask;
+	else
+		*p &= ~mask;
+}
+
+void akvm_vcpu_intercept_msr_read(struct vcpu_context *vcpu, unsigned int msr)
+{
+	return __vcpu_set_msr_intercept(vcpu, msr, true, false);
+}
+
+void akvm_vcpu_intercept_msr_write(struct vcpu_context *vcpu, unsigned int msr)
+{
+	return __vcpu_set_msr_intercept(vcpu, msr, true, true);
+}
+
+void akvm_vcpu_passthru_msr_read(struct vcpu_context *vcpu, unsigned int msr)
+{
+	return __vcpu_set_msr_intercept(vcpu, msr, false, false);
+}
+
+void akvm_vcpu_passthru_msr_write(struct vcpu_context *vcpu, unsigned int msr)
+{
+	return __vcpu_set_msr_intercept(vcpu, msr, false, true);
 }

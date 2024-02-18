@@ -39,6 +39,11 @@ typedef union msr_val {
 			  X86_CR4_SMXE | X86_CR4_LA57 | \
 			  X86_CR4_PCE | X86_CR4_MCE)
 
+#define X86_MSR_LOW_START 0x0
+#define X86_MSR_LOW_END 0x2000
+#define X86_MSR_HIGH_START 0xc0000000
+#define X86_MSR_HIGH_END 0xc0002000
+
 static inline u16 get_cs(void)
 {
 	unsigned int val;

@@ -84,7 +84,6 @@ static int handle_vmcall(struct vcpu_context *vcpu)
 	return 1;
 }
 
-
 static int handle_rdmsr(struct vcpu_context *vcpu)
 {
 	unsigned long index = akvm_vcpu_read_register(vcpu, GPR_RCX);
