@@ -71,7 +71,6 @@ struct vm_host_state {
 struct vm_guest_state {
 	struct reg_context regs;
 	msr_val_t msr_efer;
-	msr_val_t msr_pat;
 } __attribute__((packed));
 
 struct vm_vmcs {

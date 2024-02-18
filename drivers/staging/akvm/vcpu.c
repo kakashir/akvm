@@ -578,10 +578,7 @@ static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
 	vmcs_write_natural(VMX_GUEST_IA32_SYSENTER_ESP, 0);
 	vmcs_write_natural(VMX_GUEST_IA32_SYSENTER_EIP, 0);
 	vmcs_write_64(VMX_GUEST_IA32_PERF_GLOBAL_CTL, 0);
-
 	vmcs_write_64(VMX_GUEST_IA32_PAT, X86_PAT_DEF_VAL);
-	vcpu->guest_state.msr_pat.val = X86_PAT_DEF_VAL;
-
 	vmcs_write_64(VMX_GUEST_IA32_EFER, 0);
 	/* vmcs_write_64(VMX_GUEST_IA32_BNDCFGS, 0); */
 	vmcs_write_64(VMX_GUEST_IA32_RTIT_CTL, 0);
