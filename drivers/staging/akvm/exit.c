@@ -96,9 +96,6 @@ static int handle_rdmsr(struct vcpu_context *vcpu)
 	case MSR_EFER:
 		val = &vcpu->guest_state.msr_efer;
 		break;
-	case MSR_IA32_CR_PAT:
-		val = &vcpu->guest_state.msr_pat;
-		break;
 	default:
 		pr_info("%s: unsupoorted msr index:0x%lx\n", __func__, index);
 		return -ENOTSUPP;
@@ -173,10 +170,6 @@ static int handle_wrmsr(struct vcpu_context *vcpu)
 	switch(index) {
 	case MSR_EFER:
 		return handle_wrmsr_efer(vcpu, index, &msr_val);
-	case MSR_IA32_CR_PAT:
-		vmcs_write_64(VMX_GUEST_IA32_PAT, msr_val.val);
-		vcpu->guest_state.msr_pat.val = msr_val.val;
-		return akvm_vcpu_skip_instruction(vcpu);
 	default:
 		pr_info("unsupported wrmsr: index:0x%lx data_low:0x%x data_high:0x%x\n",
 			index, msr_val.low, msr_val.high);
