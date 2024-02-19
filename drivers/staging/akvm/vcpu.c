@@ -785,12 +785,13 @@ static int vm_enter_exit(struct vcpu_context *vcpu)
 	vcpu->regs_dirty_mask &= ~VCPU_REG_AVAILABLE_MASK;
 	vcpu->regs_available_mask = VCPU_REG_AVAILABLE_MASK;
 	WARN_ON(vcpu->regs_dirty_mask);
+	vcpu->exit_info_available_mask = 0;
 
 	if (!r) {
-		vcpu->exit.val = vmcs_read_32(VMX_EXIT_REASON);
-		vcpu->intr_info.val = vmcs_read_32(VMX_EXIT_INTR_INFO);
-		vcpu->intr_error_code = vmcs_read_32(VMX_EXIT_INTR_ERROR_CODE);
-		if (!vcpu->exit.failed)
+		union vmx_exit_reason reason;
+
+		reason.val = akvm_vcpu_exit_info(vcpu, EXIT_REASON);
+		if (!reason.failed)
 			vcpu->vmcs.launched = true;
 		return r;
 	}
@@ -853,6 +854,7 @@ static void dump_vmcs(struct vcpu_context *vcpu)
 
 static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 {
+	union vmx_exit_reason exit_reason;
 	unsigned long flags;
 	int r;
 
@@ -902,20 +904,21 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 
 		set_run_state_leave_guest(vcpu);
 
-		if (!r && !vcpu->exit.failed)
-			r = handle_vm_exit_irqoff(vcpu);
+		exit_reason.val = akvm_vcpu_exit_info(vcpu, EXIT_REASON);
+		if (!r && !exit_reason.failed)
+			r = handle_vm_exit_irqoff(vcpu, exit_reason);
 irq_enable:
 		local_irq_restore(flags);
 		preempt_enable();
 
 		set_run_state_in_host(vcpu);
 
-		if (!r && !vcpu->exit.failed)
-			r = handle_vm_exit(vcpu);
+		if (!r && !exit_reason.failed)
+			r = handle_vm_exit(vcpu, exit_reason);
 
-		if (vcpu->exit.failed) {
+		if (exit_reason.failed) {
 			pr_info("%s: vmentry failed: 0x%x\n",
-				__func__, vcpu->exit.val);
+				__func__, exit_reason.val);
 			r = -1;
 		}
 		if (r < 0)
@@ -1210,13 +1213,15 @@ void akvm_vcpu_write_register(struct vcpu_context *vcpu,
 int akvm_vcpu_skip_instruction(struct vcpu_context *vcpu)
 {
 	unsigned long rip;
+	unsigned long exit_instruction_len;
 
-	if (!vcpu->exit_instruction_len)
+	exit_instruction_len = akvm_vcpu_exit_info(vcpu, EXIT_INSTRUCTION_LEN);
+	if (!exit_instruction_len)
 		return -EINVAL;
 
 	rip = akvm_vcpu_read_register(vcpu, SYS_RIP);
 	akvm_vcpu_write_register(vcpu, SYS_RIP,
-				 rip + vcpu->exit_instruction_len);
+				 rip + exit_instruction_len);
 	return 0;
 }
 
@@ -1262,4 +1267,42 @@ void akvm_vcpu_passthru_msr_read(struct vcpu_context *vcpu, unsigned int msr)
 void akvm_vcpu_passthru_msr_write(struct vcpu_context *vcpu, unsigned int msr)
 {
 	return __vcpu_set_msr_intercept(vcpu, msr, false, true);
+}
+
+unsigned long akvm_vcpu_exit_info(struct vcpu_context *vcpu,
+				  enum exit_info_id id)
+{
+	unsigned long mask = 1ULL << id;
+	unsigned long val;
+
+	if (id >= EXIT_INFO_MAX)
+		return -EINVAL;
+
+	if (vcpu->exit_info_available_mask & mask)
+		return vcpu->exit_info.val[id];
+
+	switch(id) {
+	case EXIT_REASON:
+		val = vmcs_read_32(VMX_EXIT_REASON);
+		break;
+	case EXIT_INTR_INFO:
+		val = vmcs_read_32(VMX_EXIT_INTR_INFO);
+		break;
+	case EXIT_INTR_ERROR_CODE:
+		val = vmcs_read_32(VMX_EXIT_INTR_ERROR_CODE);
+		break;
+	case EXIT_INSTRUCTION_LEN:
+		val = vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
+		break;
+	case EXIT_GPA:
+		val = vmcs_read_64(VMX_EXIT_GPA);
+		break;
+	default:
+		WARN_ON(1);
+		return -EINVAL;
+	}
+
+	vcpu->exit_info.val[id] = val;
+	vcpu->exit_info_available_mask |= mask;
+	return val;
 }

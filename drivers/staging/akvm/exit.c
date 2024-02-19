@@ -7,6 +7,7 @@
 #include "mmu.h"
 #include "vmx.h"
 #include "x86.h"
+#include "vcpu.h"
 
 void __akvm_call_host_intr(unsigned long);
 typedef int (*vm_exit_handler)(struct vcpu_context *vcpu);
@@ -15,17 +16,19 @@ static int handle_intr_irqoff(struct vcpu_context *vcpu)
 {
 	unsigned long handler;
 	union idt_entry64 *idte;
+	union vmx_intr_info intr_info;
 	struct gdt_idt_table_desc idt_desc;
 
-	if (WARN_ON(!vcpu->intr_info.valid))
+	intr_info.val = akvm_vcpu_exit_info(vcpu, EXIT_INTR_INFO);
+	if (WARN_ON(!intr_info.valid))
 		return -EINVAL;
 
-	if (WARN_ON(vcpu->intr_info.type != VMX_INTR_TYPE_EXTERNAL))
+	if (WARN_ON(intr_info.type != VMX_INTR_TYPE_EXTERNAL))
 		return -EINVAL;
 
 	get_idt_table_desc(&idt_desc);
 	idte = (void*)idt_desc.base;
-	handler = get_idt_entry_point(idte + vcpu->intr_info.vector);
+	handler = get_idt_entry_point(idte + intr_info.vector);
 
 	__akvm_call_host_intr(handler);
 	return 0;
@@ -33,10 +36,13 @@ static int handle_intr_irqoff(struct vcpu_context *vcpu)
 
 static int handle_excep_nmi_irqoff(struct vcpu_context *vcpu)
 {
-	if (WARN_ON(!vcpu->intr_info.valid))
+	union vmx_intr_info intr_info;
+
+	intr_info.val = akvm_vcpu_exit_info(vcpu, EXIT_INTR_INFO);
+	if (WARN_ON(!intr_info.valid))
 		return -EINVAL;
 
-	if (WARN_ON(vcpu->intr_info.type != VMX_INTR_TYPE_NMI))
+	if (WARN_ON(intr_info.type != VMX_INTR_TYPE_NMI))
 		return -EINVAL;
 
 	__akvm_call_host_intr((unsigned long)asm_exc_nmi_kvm_vmx);
@@ -45,7 +51,8 @@ static int handle_excep_nmi_irqoff(struct vcpu_context *vcpu)
 
 static int default_handler(struct vcpu_context *vcpu)
 {
-	pr_err("unimplemented vm exit reason:%d\n", vcpu->exit.reason);
+	pr_err("unimplemented vm exit reason:%ld\n",
+	       akvm_vcpu_exit_info(vcpu, EXIT_REASON));
 	return -ENOTSUPP;
 }
 
@@ -56,7 +63,7 @@ static int handle_ignore(struct vcpu_context *vcpu)
 
 static int handle_ept_violation(struct vcpu_context *vcpu)
 {
-	gpa fault_addr = vmcs_read_64(VMX_EXIT_GPA);
+	gpa fault_addr = akvm_vcpu_exit_info(vcpu, EXIT_GPA);
 
 	return akvm_handle_mmu_page_fault(vcpu, &vcpu->vm->mmu, fault_addr);
 };
@@ -64,9 +71,6 @@ static int handle_ept_violation(struct vcpu_context *vcpu)
 static int handle_vmcall(struct vcpu_context *vcpu)
 {
 	struct akvm_vcpu_runtime *runtime = vcpu->runtime;
-
-	vcpu->exit_instruction_len =
-		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
 
 	runtime->exit_reason = AKVM_EXIT_VM_SERVICE;
 
@@ -88,9 +92,6 @@ static int handle_rdmsr(struct vcpu_context *vcpu)
 {
 	unsigned long index = akvm_vcpu_read_register(vcpu, GPR_RCX);
 	msr_val_t *val;
-
-	vcpu->exit_instruction_len =
-		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
 
 	switch(index) {
 	case MSR_EFER:
@@ -159,9 +160,6 @@ static int handle_wrmsr(struct vcpu_context *vcpu)
 {
 	unsigned long index;
 	msr_val_t msr_val;
-
-	vcpu->exit_instruction_len =
-		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
 
 	index = akvm_vcpu_read_register(vcpu, GPR_RCX);
 	msr_val.low = akvm_vcpu_read_register(vcpu, GPR_RAX);
@@ -353,9 +351,6 @@ static int handle_cr(struct vcpu_context *vcpu)
 		return -ENOTSUPP;
 	}
 
-	vcpu->exit_instruction_len =
-		vmcs_read_32(VMX_EXIT_INSTRUCTION_LENGTH);
-
 	switch (cr) {
 	case 0:
 		return handle_cr0(vcpu, !type, reg, val);
@@ -380,9 +375,10 @@ static vm_exit_handler exit_handler[VMX_EXIT_MAX_NUMBER] =
 	[VMX_EXIT_EPT_VIOLATION] = handle_ept_violation,
 };
 
-int handle_vm_exit_irqoff(struct vcpu_context *vcpu)
+int handle_vm_exit_irqoff(struct vcpu_context *vcpu,
+			  union vmx_exit_reason exit)
 {
-	switch (vcpu->exit.reason) {
+	switch (exit.reason) {
 	case VMX_EXIT_EXCEP_NMI:
 		return handle_excep_nmi_irqoff(vcpu);
 	case VMX_EXIT_INTR:
@@ -392,9 +388,10 @@ int handle_vm_exit_irqoff(struct vcpu_context *vcpu)
 	}
 }
 
-int handle_vm_exit(struct vcpu_context *vcpu)
+int handle_vm_exit(struct vcpu_context *vcpu,
+		   union vmx_exit_reason exit)
 {
-	int reason = vcpu->exit.reason;
+	int reason = exit.reason;
 	vm_exit_handler handler;
 
 	if (reason >= VMX_EXIT_MAX_NUMBER)
