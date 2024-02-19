@@ -84,6 +84,20 @@ struct vm_vmcs {
 #define AKVM_VCPU_REQUEST_FLUSH_TLB 0
 #define AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE 1
 
+enum exit_info_id {
+	EXIT_REASON,
+	EXIT_INTR_INFO,
+	EXIT_INTR_ERROR_CODE,
+	EXIT_INSTRUCTION_LEN,
+	EXIT_GPA,
+
+	EXIT_INFO_MAX,
+};
+
+struct exit_info {
+	unsigned long val[EXIT_INFO_MAX];
+};
+
 struct vcpu_context {
 	struct vm_vmcs vmcs;
 
@@ -97,10 +111,8 @@ struct vcpu_context {
 	unsigned long cr4_host_mask;
 	unsigned long cr4_read_shadow;
 
-	union vmx_exit_reason exit;
-	union vmx_intr_info intr_info;
-	int intr_error_code;
-	int exit_instruction_len;
+	struct exit_info exit_info;
+	unsigned long exit_info_available_mask;
 
 	struct vm_host_state host_state;
 	struct vm_guest_state guest_state;
@@ -173,5 +185,7 @@ void akvm_vcpu_intercept_msr_write(struct vcpu_context *vcpu, unsigned int msr);
 void akvm_vcpu_passthru_msr_read(struct vcpu_context *vcpu, unsigned int msr);
 void akvm_vcpu_passthru_msr_write(struct vcpu_context *vcpu, unsigned int msr);
 
+unsigned long akvm_vcpu_exit_info(struct vcpu_context *vcpu,
+				  enum exit_info_id id);
 
 #endif
