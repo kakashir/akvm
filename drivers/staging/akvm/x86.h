@@ -46,6 +46,42 @@ typedef union msr_val {
 #define X86_MSR_HIGH_START 0xc0000000
 #define X86_MSR_HIGH_END 0xc0002000
 
+#define X86_EXCEP_DE  0
+#define X86_EXCEP_DB  1
+#define X86_EXCEP_NMI 2
+#define X86_EXCEP_BP  3
+#define X86_EXCEP_OF  4
+#define X86_EXCEP_BR  5
+#define X86_EXCEP_UD  6
+#define X86_EXCEP_NM  7
+#define X86_EXCEP_DF  8
+#define X86_EXCEP_9   9
+#define X86_EXCEP_TS 10
+#define X86_EXCEP_NP 11
+#define X86_EXCEP_SS 12
+#define X86_EXCEP_GP 13
+#define X86_EXCEP_PF 14
+#define X86_EXCEP_MF 16
+#define X86_EXCEP_AC 17
+#define X86_EXCEP_MC 18
+#define X86_EXCEP_XM 19
+#define X86_EXCEP_VE 20
+#define X86_EXCEP_CP 21
+#define X86_EXCEP_END X86_EXCEP_CP
+
+enum x86_event_type {
+	X86_EVENT_INTR,
+	X86_EVENT_RESERVED,
+	X86_EVENT_NMI,
+	X86_EVENT_HARDWARE_EXCEP,
+	X86_EVENT_SOFTWARE_INTR,
+	X86_EVENT_PRIV_SOFTWARE_EXCEP,
+	X86_EVENT_SOFTWARE_EXCEP,
+	X86_EVENT_OTHER,
+};
+
+#define X86_FLAGS_RF BIT_ULL(16)
+
 static inline u16 get_cs(void)
 {
 	unsigned int val;
@@ -228,5 +264,7 @@ static inline void write_dr(int index, unsigned long val)
 
 }
 
+bool x86_excep_df(int first_excep, int sec_excep);
+enum x86_event_type x86_excep_event_type(int excep_number);
 
 #endif
