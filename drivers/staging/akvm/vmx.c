@@ -216,3 +216,58 @@ void __vmcs_write(vmcs_field field, unsigned long val)
 	pr_err("%s() VMfailedInvalid: field:0x%x\n", __func__, field);
 	return;
 }
+
+bool vmx_need_vmentry_instruction_len(enum x86_event_type type)
+{
+	if (type == X86_EVENT_SOFTWARE_INTR)
+		return true;
+	if (type == X86_EVENT_SOFTWARE_EXCEP)
+		return true;
+	if (type == X86_EVENT_PRIV_SOFTWARE_EXCEP)
+		return true;
+	return false;
+}
+
+void vmx_inject_event(int vector, enum x86_event_type type,
+		      bool has_error_code, unsigned long error_code,
+		      int instruction_len)
+{
+	union vmx_intr_info event = {
+		.vector = vector,
+		.type = type,
+		.error_code = has_error_code,
+		.iret_nmi_block = 0,
+		.valid = 1,
+	};
+
+	vmcs_write_32(VMX_ENTRY_EVENT_INFO, event.val);
+	if (has_error_code)
+		vmcs_write_32(VMX_ENTRY_EVENT_ERROR_CODE, error_code);
+	if (vmx_need_vmentry_instruction_len(type))
+		vmcs_write_32(VMX_ENTRY_INSTRUCTION_LEN, instruction_len);
+}
+
+bool vmx_inject_event_need_set_flags_rf(int vector)
+{
+	switch (vector) {
+	case X86_EXCEP_DE:
+	case X86_EXCEP_BR:
+	case X86_EXCEP_UD:
+	case X86_EXCEP_NM:
+	case X86_EXCEP_9:
+	case X86_EXCEP_TS:
+	case X86_EXCEP_NP:
+	case X86_EXCEP_SS:
+	case X86_EXCEP_GP:
+	case X86_EXCEP_PF:
+	case X86_EXCEP_MF:
+	case X86_EXCEP_AC:
+	case X86_EXCEP_XM:
+	case X86_EXCEP_VE:
+	case X86_EXCEP_CP:
+		return true;
+	default:
+		return false;
+	}
+
+}

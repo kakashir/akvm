@@ -849,6 +849,38 @@ static int akvm_handle_vcpu_request_flush_tlb(struct vcpu_context *vcpu)
 		return invept(0);
 }
 
+static int handle_request_event(struct vcpu_context *vcpu)
+{
+	struct exception_inject_state *exception = &vcpu->exception;
+
+	/*
+	  NMI interrupt happends on instrcution boundary.
+	  So only inject it when no pending exception, this is not
+	  exact as bare metal behavior(only Trap-class #DB on
+	  previous instruction over-ride NMI) but simplify the
+	  implementation.
+
+	  TODO: Add immediate exit in such case to inject the
+	  NMI immedately after injected exception.
+	 */
+	if (exception->state != EVENT_FREE) {
+		vmx_inject_event(exception->id, exception->type,
+				 exception->has_error_code,
+				 exception->error_code,
+				 exception->instruction_len);
+		exception->state = EVENT_INJECTED;
+	} else if (exception->nmi_state != EVENT_FREE) {
+		vmx_inject_event(X86_EXCEP_NMI, X86_EVENT_NMI, false, 0, 0);
+		exception->nmi_state = EVENT_INJECTED;
+	}
+
+	if (exception->state == EVENT_PENDING ||
+	    exception->nmi_state == EVENT_PENDING)
+		akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_EVENT, false);
+
+	return 0;
+}
+
 static int akvm_vcpu_handle_requests(struct vcpu_context *vcpu)
 {
 	int r = 0;
@@ -856,6 +888,9 @@ static int akvm_vcpu_handle_requests(struct vcpu_context *vcpu)
 	if (test_and_clear_bit(AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE,
 			       &vcpu->requests))
 		r = handle_request_vm_service_complete(vcpu);
+
+	if (test_and_clear_bit(AKVM_VCPU_REQUEST_EVENT, &vcpu->requests))
+		r = handle_request_event(vcpu);
 
 	return r;
 }
@@ -879,6 +914,31 @@ static void dump_vmcs(struct vcpu_context *vcpu)
 	pr_info(" guest efer: 0x%lx: val\n", vmcs_read_64(VMX_GUEST_IA32_EFER));
 	pr_info(" guest rip: 0x%lx: val\n", vmcs_read_natural(VMX_GUEST_RIP));
 	pr_info(" guest rsp: 0x%lx: val\n", vmcs_read_natural(VMX_GUEST_RSP));
+}
+
+static void akvm_vcpu_event_injection_done(struct vcpu_context *vcpu)
+{
+	union vmx_intr_info vector_info;
+	struct exception_inject_state *exception = &vcpu->exception;
+
+	vector_info.val = akvm_vcpu_exit_info(vcpu, EXIT_VECTOR_INFO);
+	if (!vector_info.valid) {
+		exception->state = EVENT_FREE;
+		return;
+	}
+
+	if (WARN_ON(vector_info.type == X86_EVENT_INTR))
+		return;
+
+	exception->id = vector_info.vector;
+	exception->type = vector_info.type;
+	if (vmx_need_vmentry_instruction_len(vector_info.type))
+		exception->instruction_len =
+			akvm_vcpu_exit_info(vcpu, EXIT_INSTRUCTION_LEN);
+	exception->has_error_code = vector_info.error_code;
+	if (vector_info.error_code)
+		exception->error_code =
+			akvm_vcpu_exit_info(vcpu, EXIT_VECTOR_ERROR_CODE);
 }
 
 static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
@@ -941,6 +1001,8 @@ irq_enable:
 		preempt_enable();
 
 		set_run_state_in_host(vcpu);
+
+		akvm_vcpu_event_injection_done(vcpu);
 
 		if (!r && !exit_reason.failed)
 			r = handle_vm_exit(vcpu, exit_reason);
@@ -1335,6 +1397,12 @@ unsigned long akvm_vcpu_exit_info(struct vcpu_context *vcpu,
 	case EXIT_GPA:
 		val = vmcs_read_64(VMX_EXIT_GPA);
 		break;
+	case EXIT_VECTOR_INFO:
+		val = vmcs_read_32(VMX_EXIT_VECTORING_INFO);
+		break;
+	case EXIT_VECTOR_ERROR_CODE:
+		val = vmcs_read_32(VMX_EXIT_VECTORING_ERROR_CODE);
+		break;
 	default:
 		WARN_ON(1);
 		return -EINVAL;
@@ -1343,4 +1411,60 @@ unsigned long akvm_vcpu_exit_info(struct vcpu_context *vcpu,
 	vcpu->exit_info.val[id] = val;
 	vcpu->exit_info_available_mask |= mask;
 	return val;
+}
+
+int akvm_vcpu_inject_exception(struct vcpu_context *vcpu, int excep_number,
+			       bool has_error_code, unsigned long error_code,
+			       enum x86_event_type type, unsigned long payload,
+			       int instruction_len)
+{
+	WARN_ON(excep_number > X86_EXCEP_END);
+	WARN_ON((excep_number == X86_EXCEP_NMI) ^ (type == X86_EVENT_NMI));
+
+	if (WARN_ON(type == X86_EVENT_INTR))
+		return -ENOTSUPP;
+
+	if (type == X86_EVENT_NMI) {
+		if (vcpu->exception.nmi_state == EVENT_FREE)
+			vcpu->exception.nmi_state = EVENT_PENDING;
+		return 0;
+	}
+
+	if (vcpu->exception.state == EVENT_FREE)
+		vcpu->exception.state = EVENT_PENDING;
+	else {
+		if (x86_excep_df(vcpu->exception.id, excep_number)) {
+			excep_number = X86_EXCEP_DF;
+			type = x86_excep_event_type(excep_number);
+		}
+	}
+
+	vcpu->exception.id = excep_number;
+	vcpu->exception.has_error_code = has_error_code;
+	vcpu->exception.error_code = error_code;
+	vcpu->exception.instruction_len = instruction_len;
+	vcpu->exception.type = type;
+
+	/* #DB has additional update to DR6 */
+	if (excep_number == X86_EXCEP_DB)
+		vcpu->guest_state.regs.val[DR_6] = payload;
+
+	/* update RF becaue event injection doesn't do that */
+	if (vmx_inject_event_need_set_flags_rf(excep_number)) {
+		unsigned long flags;
+
+		flags = akvm_vcpu_read_register(vcpu, SYS_RFLAGS);
+		flags |= X86_FLAGS_RF;
+		akvm_vcpu_write_register(vcpu, SYS_RFLAGS, flags);
+	}
+
+	akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_EVENT, false);
+	return 0;
+}
+
+int akvm_vcpu_inject_gp(struct vcpu_context *vcpu, unsigned long error_code)
+{
+	return akvm_vcpu_inject_exception(vcpu, X86_EXCEP_GP, true, error_code,
+					  x86_excep_event_type(X86_EXCEP_GP),
+					  0, 0);
 }

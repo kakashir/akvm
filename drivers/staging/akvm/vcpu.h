@@ -92,6 +92,7 @@ struct vm_vmcs {
 
 #define AKVM_VCPU_REQUEST_FLUSH_TLB 0
 #define AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE 1
+#define AKVM_VCPU_REQUEST_EVENT 2
 
 enum exit_info_id {
 	EXIT_REASON,
@@ -99,12 +100,31 @@ enum exit_info_id {
 	EXIT_INTR_ERROR_CODE,
 	EXIT_INSTRUCTION_LEN,
 	EXIT_GPA,
+	EXIT_VECTOR_INFO,
+	EXIT_VECTOR_ERROR_CODE,
 
 	EXIT_INFO_MAX,
 };
 
 struct exit_info {
 	unsigned long val[EXIT_INFO_MAX];
+};
+
+enum event_inject_state
+{
+	EVENT_FREE,
+	EVENT_PENDING,
+	EVENT_INJECTED,
+};
+
+struct exception_inject_state {
+	int id;
+	int instruction_len;
+	bool has_error_code;
+	unsigned long error_code;
+	enum event_inject_state state;
+	enum event_inject_state nmi_state;
+	enum x86_event_type type;
 };
 
 struct vcpu_context {
@@ -125,6 +145,7 @@ struct vcpu_context {
 
 	struct vm_host_state host_state;
 	struct vm_guest_state guest_state;
+	struct exception_inject_state exception;
 
 	struct mutex ioctl_lock;
 	struct preempt_notifier preempt_notifier;
@@ -196,4 +217,13 @@ void akvm_vcpu_passthru_msr_write(struct vcpu_context *vcpu, unsigned int msr);
 
 unsigned long akvm_vcpu_exit_info(struct vcpu_context *vcpu,
 				  enum exit_info_id id);
+
+int akvm_vcpu_inject_exception(struct vcpu_context *vcpu, int excep_number,
+			       bool has_error_code, unsigned long error_code,
+			       enum x86_event_type type,
+			       unsigned long pay_load,
+			       int instruction_len);
+/* friendly API for most used exceptions :-) */
+int akvm_vcpu_inject_gp(struct vcpu_context *vcpu, unsigned long error_code);
+
 #endif

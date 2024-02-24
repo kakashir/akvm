@@ -6,6 +6,7 @@
 #include <linux/mm.h>
 
 #include "common.h"
+#include "x86.h"
 
 struct vmx_capability {
 	u64 msr_vmx_basic;
@@ -195,6 +196,11 @@ enum vmcs_filed_id {
 	VMX_CR4_READ_SHADOW = 0x6006,
 	VMX_MSR_BITMAP = 0x2004,
 	VMX_MSR_BITMAP_HIGH = 0x2005,
+	VMX_ENTRY_EVENT_INFO = 0x4016,
+	VMX_ENTRY_EVENT_ERROR_CODE = 0x4018,
+	VMX_ENTRY_INSTRUCTION_LEN = 0x401a,
+	VMX_EXIT_VECTORING_INFO = 0x4408,
+	VMX_EXIT_VECTORING_ERROR_CODE = 0x440a,
 
 	/* host 16bit state area */
 	VMX_HOST_ES = 0xc00,
@@ -555,5 +561,12 @@ static inline bool vmx_ept_pte_large_page(unsigned long val)
 {
 	return !!(val & VMX_EPT_PTE_LARGE_PAGE);
 }
+
+bool vmx_inject_event_need_set_flags_rf(int vector);
+bool vmx_need_vmentry_instruction_len(enum x86_event_type type);
+void vmx_inject_event(int vector, enum x86_event_type type,
+		      bool has_error_code, unsigned long error_code,
+		      int instruction_len);
+
 
 #endif
