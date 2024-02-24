@@ -35,6 +35,15 @@ enum reg_context_id {
 	GPR_R14,
 	GPR_R15,
 
+	DR_0,
+	DR_1,
+	DR_2,
+	DR_3,
+	DR_4,
+	DR_5,
+	DR_6,
+	DR_7,
+
 	SYS_RIP,
 	SYS_RFLAGS,
 	SYS_CR0,
@@ -187,5 +196,4 @@ void akvm_vcpu_passthru_msr_write(struct vcpu_context *vcpu, unsigned int msr);
 
 unsigned long akvm_vcpu_exit_info(struct vcpu_context *vcpu,
 				  enum exit_info_id id);
-
 #endif

@@ -681,6 +681,13 @@ static void save_guest_state(struct vcpu_context *vcpu)
 {
 	akvm_vcpu_write_register(vcpu, SYS_CR2, read_cr2());
 	akvm_vcpu_write_register(vcpu, SYS_CR8, read_cr8());
+
+	/* DR7 is switched by VMCS guest DR7 field */
+	for (int i = DR_0; i < DR_7; ++i) {
+		if (i == DR_4 || i == DR_5)
+			continue;
+		akvm_vcpu_write_register(vcpu, i, read_dr(i - DR_0));
+	}
 }
 
 static void load_guest_state(struct vcpu_context *vcpu,
@@ -717,6 +724,28 @@ static void load_guest_state(struct vcpu_context *vcpu,
 	if (vcpu->regs_dirty_mask & BIT_ULL(SYS_CR8)) {
 		write_cr8(state->regs.val[SYS_CR8]);
 		vcpu->regs_dirty_mask &= ~BIT_ULL(SYS_CR8);
+	}
+
+	/*
+	 * disable DR before restore guest value, avoid #DB caused by
+	 * VA in guest DR matches host VA.
+	 */
+	write_dr(7, X86_DR7_DEF_DISABLE);
+	for (int i = DR_0; i <= DR_7; ++i) {
+		if (!(vcpu->regs_dirty_mask & BIT_ULL(i)))
+			continue;
+		vcpu->regs_dirty_mask &= ~BIT_ULL(i);
+
+		if (i == DR_4 || i == DR_5)
+			continue;
+
+		if (i == DR_7) {
+			vmcs_write_natural(VMX_GUEST_DR7,
+					   vcpu->guest_state.regs.val[i]);
+			continue;
+		}
+
+		write_dr(i - DR_0, vcpu->guest_state.regs.val[i]);
 	}
 }
 
@@ -1188,6 +1217,15 @@ unsigned long akvm_vcpu_read_register(struct vcpu_context *vcpu,
 	case SYS_CR4:
 		vcpu->guest_state.regs.val[id]
 			= vmcs_read_natural(VMX_GUEST_CR4);
+		break;
+	case DR_0...DR_3:
+	case DR_6:
+		vcpu->guest_state.regs.val[id] =
+			read_dr(id - DR_0);
+		break;
+	case DR_7:
+		vcpu->guest_state.regs.val[id] =
+			vmcs_read_natural(VMX_GUEST_DR7);
 		break;
 	default:
 		WARN_ON(1);
