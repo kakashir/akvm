@@ -151,6 +151,7 @@ union vmx_exit_reason {
 #define VMX_EXIT_RDMSR 31
 #define VMX_EXIT_WRMSR 32
 #define VMX_EXIT_EPT_VIOLATION 48
+#define VMX_EXIT_PREEMPT_TIMER 52
 #define VMX_EXIT_MAX_NUMBER 78
 
 union vmx_intr_info {
@@ -404,6 +405,7 @@ static inline int invept(unsigned long ept_root)
 /* VMX control bit definition */
 #define VMX_PINBASE_EXTERNAL_INTERRUPT_EXIT BIT(0)
 #define VMX_PINBASE_NMI_EXIT BIT(3)
+#define VMX_PINBASE_PREEMPT_TIMER BIT(6)
 
 #define VMX_PROCBASE_ACTIVE_3RD_CONTROL BIT(17)
 #define VMX_PROCBASE_UNCOND_IO_EXIT BIT(24)

@@ -365,6 +365,13 @@ static int handle_cr(struct vcpu_context *vcpu)
 	return -ENOTSUPP;
 }
 
+static int handle_preempt_timer(struct vcpu_context *vcpu)
+{
+	/* disable preempt timer by default */
+	akvm_vcpu_clear_immediate_exit(vcpu);
+	return 0;
+}
+
 static vm_exit_handler exit_handler[VMX_EXIT_MAX_NUMBER] =
 {
 	[VMX_EXIT_INTR] = handle_ignore,
@@ -373,6 +380,7 @@ static vm_exit_handler exit_handler[VMX_EXIT_MAX_NUMBER] =
 	[VMX_EXIT_RDMSR] = handle_rdmsr,
 	[VMX_EXIT_WRMSR] = handle_wrmsr,
 	[VMX_EXIT_EPT_VIOLATION] = handle_ept_violation,
+	[VMX_EXIT_PREEMPT_TIMER] = handle_preempt_timer,
 };
 
 int handle_vm_exit_irqoff(struct vcpu_context *vcpu,
