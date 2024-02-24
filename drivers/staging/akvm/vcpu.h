@@ -225,5 +225,7 @@ int akvm_vcpu_inject_exception(struct vcpu_context *vcpu, int excep_number,
 			       int instruction_len);
 /* friendly API for most used exceptions :-) */
 int akvm_vcpu_inject_gp(struct vcpu_context *vcpu, unsigned long error_code);
+void akvm_vcpu_set_immediate_exit(struct vcpu_context *vcpu);
+void akvm_vcpu_clear_immediate_exit(struct vcpu_context *vcpu);
 
 #endif

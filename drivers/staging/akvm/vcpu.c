@@ -27,7 +27,8 @@
 
 #define VMX_PINBASE_CTL_MIN		       \
 	(VMX_PINBASE_EXTERNAL_INTERRUPT_EXIT | \
-	 VMX_PINBASE_NMI_EXIT)
+	 VMX_PINBASE_NMI_EXIT | \
+	 VMX_PINBASE_PREEMPT_TIMER)
 
 #define VMX_PROCBASE_CTL_MIN			\
 	(VMX_PROCBASE_ACTIVE_2ND_CONTROL |	\
@@ -195,6 +196,7 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 		pr_err("unsupported vmx pinbase:0x%x\n", vmx_pinbase);
 		return -EINVAL;
 	}
+	vmx_pinbase &= ~VMX_PINBASE_PREEMPT_TIMER;
 
 	vmx_adjust_ctl_bit(vmx_procbase,
 			   cap->proc_based_exec_fixed0,
@@ -858,10 +860,8 @@ static int handle_request_event(struct vcpu_context *vcpu)
 	  So only inject it when no pending exception, this is not
 	  exact as bare metal behavior(only Trap-class #DB on
 	  previous instruction over-ride NMI) but simplify the
-	  implementation.
-
-	  TODO: Add immediate exit in such case to inject the
-	  NMI immedately after injected exception.
+	  implementation with immedate vmexit to inject NMI
+	  immediately after injected exception.
 	 */
 	if (exception->state != EVENT_FREE) {
 		vmx_inject_event(exception->id, exception->type,
@@ -875,8 +875,10 @@ static int handle_request_event(struct vcpu_context *vcpu)
 	}
 
 	if (exception->state == EVENT_PENDING ||
-	    exception->nmi_state == EVENT_PENDING)
+	    exception->nmi_state == EVENT_PENDING) {
 		akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_EVENT, false);
+		akvm_vcpu_set_immediate_exit(vcpu);
+	}
 
 	return 0;
 }
@@ -1467,4 +1469,17 @@ int akvm_vcpu_inject_gp(struct vcpu_context *vcpu, unsigned long error_code)
 	return akvm_vcpu_inject_exception(vcpu, X86_EXCEP_GP, true, error_code,
 					  x86_excep_event_type(X86_EXCEP_GP),
 					  0, 0);
+}
+
+void akvm_vcpu_set_immediate_exit(struct vcpu_context *vcpu)
+{
+	vcpu->pinbase_ctl |= VMX_PINBASE_PREEMPT_TIMER;
+	vmcs_write_32(VMX_PINBASE_CTL, vcpu->pinbase_ctl);
+	vmcs_write_32(VMX_GUEST_PREEMPT_TIMER, 0);
+}
+
+void akvm_vcpu_clear_immediate_exit(struct vcpu_context *vcpu)
+{
+	vcpu->pinbase_ctl &= ~VMX_PINBASE_PREEMPT_TIMER;
+	vmcs_write_32(VMX_PINBASE_CTL, vcpu->pinbase_ctl);
 }
