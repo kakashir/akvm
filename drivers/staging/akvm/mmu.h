@@ -25,9 +25,7 @@ void akvm_deinit_mmu(struct mmu_context *mmu);
 int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu, struct mmu_context* mmu,
 			       gpa fault_addr);
 
-static inline unsigned long akvm_mmu_root_page(struct mmu_context *mmu)
-{
-	return mmu->root;
-}
+unsigned long akvm_mmu_root_page(struct mmu_context *mmu,
+				 struct vmx_capability *cap);
 
 #endif
