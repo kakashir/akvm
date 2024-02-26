@@ -362,25 +362,15 @@ static int setup_vmcs_host_state(struct vcpu_context *vcpu)
 static void setup_ept_root(struct vcpu_context *vcpu,
 			   struct vmx_capability *cap)
 {
-	unsigned long ept_val;
-	unsigned long ept_root = akvm_mmu_root_page(&vcpu->vm->mmu);
+	unsigned long ept_root = akvm_mmu_root_page(&vcpu->vm->mmu, cap);
 
 	if (!ept_root) {
-		akvm_pr_info("ept_root: skip due to no ept_root page\n");
+		akvm_pr_info("%s skip due to no ept_root page\n", __func__);
 		return;
 	}
 
-	WARN_ON(!vmx_ept_mem_type_wb(cap));
-
-	ept_val = __pa(ept_root) & PAGE_MASK;
-	ept_val |= VMX_EPT_MEM_TYPE_WB;
-	ept_val |= (vmx_ept_level(cap) - 1) << VMX_EPT_WALK_LENGTH_SHIFT;
-	if (vmx_ept_ad_bit(cap))
-		ept_val |= VMX_EPT_ENABLE_AD_BITS;
-
-	vcpu->ept_root_cached = ept_val;
-	vmcs_write_64(VMX_EPTP_POINTER, ept_val);
-	akvm_pr_info("ept_root: 0x%lx\n", ept_val);
+	vmcs_write_64(VMX_EPTP_POINTER, ept_root);
+	akvm_pr_info("ept_root: 0x%lx\n", ept_root);
 }
 
 static void setup_vmcs_guest_state(struct vcpu_context *vcpu,
@@ -845,10 +835,16 @@ static int vm_enter_exit(struct vcpu_context *vcpu)
 
 static int akvm_handle_vcpu_request_flush_tlb(struct vcpu_context *vcpu)
 {
-	if (vmx_ept_invept_single_context(&vmx_capability))
-		return invept(vcpu->ept_root_cached);
-	else
-		return invept(0);
+	unsigned long root;
+
+	if (vmx_ept_invept_single_context(&vmx_capability)) {
+		root = akvm_mmu_root_page(&vcpu->vm->mmu,
+					  &vmx_capability);
+		if (!root)
+			return 0;
+		return invept(root);
+	}
+	return invept(0);
 }
 
 static int handle_request_event(struct vcpu_context *vcpu)

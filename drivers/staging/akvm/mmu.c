@@ -372,7 +372,7 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 	struct akvm_mmu_walker walker;
 	enum akvm_page_level max_level = mmu->level;
 	enum akvm_page_level min_level = AKVM_PAGE_LEVEL_1;
-	void *root = (void*)akvm_mmu_root_page(mmu);
+	void *root = (void*)mmu->root;
 #if 0
 	/* Test data debug purpose only */
 	gpa start = ((4ULL << 12) |			\
@@ -462,7 +462,7 @@ static void __akvm_free_mmu_page_table(void *root, enum akvm_page_level level,
 static void akvm_free_mmu_page_table(struct mmu_context *mmu,
 				     gpa start, gpa end)
 {
-	void *root = (void*)akvm_mmu_root_page(mmu);
+	void *root = (void*)mmu->root;
 
 	if (!root)
 		return;
@@ -497,4 +497,23 @@ void akvm_deinit_mmu(struct mmu_context *mmu)
 
 	WARN_ON(!list_empty(&mmu->page_list));
 	free_page(mmu->root);
+}
+
+unsigned long akvm_mmu_root_page(struct mmu_context *mmu,
+				 struct vmx_capability *cap)
+{
+	unsigned long root = mmu->root;
+
+	if (!root)
+		return 0;
+
+	WARN_ON(!vmx_ept_mem_type_wb(cap));
+
+	root = __pa(root) & PAGE_MASK;
+	root |= VMX_EPT_MEM_TYPE_WB;
+	root |= (vmx_ept_level(cap) - 1) << VMX_EPT_WALK_LENGTH_SHIFT;
+	if (vmx_ept_ad_bit(cap))
+		root |= VMX_EPT_ENABLE_AD_BITS;
+
+	return root;
 }

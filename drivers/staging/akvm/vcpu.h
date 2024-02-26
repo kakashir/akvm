@@ -157,7 +157,6 @@ struct vcpu_context {
 	unsigned long requests;
 	unsigned long regs_available_mask;
 	unsigned long regs_dirty_mask;
-	unsigned long ept_root_cached;
 
 	struct akvm_vcpu_runtime  *runtime;
 };
