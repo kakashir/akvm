@@ -271,3 +271,16 @@ bool vmx_inject_event_need_set_flags_rf(int vector)
 	}
 
 }
+
+int invept(unsigned long ept_root, struct vmx_capability *vmx_cap)
+{
+	if (!vmx_ept_invept_supported(vmx_cap))
+		return -ENOTSUPP;
+
+	if (!vmx_ept_invept_single_context(vmx_cap) && ept_root)
+		ept_root = 0;
+
+	if (!vmx_ept_invept_all_context(vmx_cap) && !ept_root)
+		return -ENOTSUPP;
+	return __invept(ept_root);
+}
