@@ -378,7 +378,7 @@ VMCS_WRITE(32)
 VMCS_WRITE(64)
 VMCS_WRITE(natural)
 
-static inline int invept(unsigned long ept_root)
+static inline int __invept(unsigned long ept_root)
 {
 	unsigned long type = ept_root ? 1 : 2;
 	unsigned long inv_desc[2] = {ept_root, 0};
@@ -401,6 +401,8 @@ static inline int invept(unsigned long ept_root)
 	       __func__, inv_desc[0]);
 	return -EINVAL;
 }
+
+int invept(unsigned long ept_root, struct vmx_capability *vmx_cap);
 
 /* VMX control bit definition */
 #define VMX_PINBASE_EXTERNAL_INTERRUPT_EXIT BIT(0)

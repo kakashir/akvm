@@ -79,12 +79,17 @@ static int akvm_vm_create_memory_space(struct vm_memory_space **memory)
 
 static void akvm_deinit_vm(struct vm_context *vm)
 {
+	unsigned long ept_root;
+
 	WARN_ON(!xa_empty(&vm->vcpus));
 	xa_destroy(&vm->vcpus);
 
 	WARN_ON(!ida_is_empty(&vm->vcpu_index_pool));
 	ida_destroy(&vm->vcpu_index_pool);
 
+	ept_root = akvm_mmu_root_page(&vm->mmu, &vmx_capability);
+	if (ept_root)
+		invept(ept_root, &vmx_capability);
 	/* free_page takes care NULL ptr */
 	akvm_deinit_mmu(&vm->mmu);
 	cleanup_srcu_struct(&vm->srcu);

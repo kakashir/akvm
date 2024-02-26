@@ -837,14 +837,12 @@ static int akvm_handle_vcpu_request_flush_tlb(struct vcpu_context *vcpu)
 {
 	unsigned long root;
 
-	if (vmx_ept_invept_single_context(&vmx_capability)) {
-		root = akvm_mmu_root_page(&vcpu->vm->mmu,
-					  &vmx_capability);
-		if (!root)
-			return 0;
-		return invept(root);
-	}
-	return invept(0);
+	root = akvm_mmu_root_page(&vcpu->vm->mmu,
+				  &vmx_capability);
+	if (vmx_ept_invept_supported(&vmx_capability))
+		return invept(root, &vmx_capability);
+
+	return -ENOTSUPP;
 }
 
 static int handle_request_event(struct vcpu_context *vcpu)

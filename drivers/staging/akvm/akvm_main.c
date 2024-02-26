@@ -112,7 +112,7 @@ static void vmx_off_cpu(void *info)
 	struct vmx_region *region = this_cpu_read(vmx_region);
 
 	if (region) {
-		invept(0);
+		invept(0, &vmx_capability);
 		vmx_off();
 	}
 }
@@ -126,7 +126,7 @@ static int vmx_on_all(void)
 	if (atomic_read(&r))
 		return -EFAULT;
 	else
-		invept(0);
+		invept(0, &vmx_capability);
 	return 0;
 }
 
@@ -134,7 +134,6 @@ static void vmx_off_all(void)
 {
 	on_each_cpu(vmx_off_cpu, NULL, 1);
 }
-
 
 static int akvm_hardware_enable(void)
 {
