@@ -202,6 +202,7 @@ enum vmcs_filed_id {
 	VMX_ENTRY_INSTRUCTION_LEN = 0x401a,
 	VMX_EXIT_VECTORING_INFO = 0x4408,
 	VMX_EXIT_VECTORING_ERROR_CODE = 0x440a,
+	VMX_VPID = 0x0,
 
 	/* host 16bit state area */
 	VMX_HOST_ES = 0xc00,
@@ -416,6 +417,7 @@ int invept(unsigned long ept_root, struct vmx_capability *vmx_cap);
 
 #define VMX_PROCBASE_2ND_ENABLE_EPT BIT(1)
 #define VMX_PROCBASE_2ND_UNRESTRICT_GUEST BIT(7)
+#define VMX_PROCBASE_2ND_VPID BIT(5)
 
 #define VMX_ENTRY_LOAD_DR_DEBUGCTL BIT(2)
 #define VMX_ENTRY_IA32E BIT(9)
