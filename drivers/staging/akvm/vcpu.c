@@ -37,7 +37,8 @@
 
 #define VMX_PROCBASE_2ND_CTL_MIN		\
 	(VMX_PROCBASE_2ND_ENABLE_EPT |		\
-	 VMX_PROCBASE_2ND_UNRESTRICT_GUEST)
+	 VMX_PROCBASE_2ND_UNRESTRICT_GUEST |	\
+	 VMX_PROCBASE_2ND_VPID)
 
 #define VMX_ENTRY_CTL_MIN			\
 	(VMX_ENTRY_LOAD_DR_DEBUGCTL |		\
@@ -60,9 +61,33 @@
 	 VMX_EXIT_LOAD_PKRS |			\
 	 VMX_EXIT_SAVE_PERF_GLOBAL_CTL)
 
+static DEFINE_IDA(vmx_vpid_pool);
+
 static unsigned int msr_passthru[] = {
 	MSR_IA32_CR_PAT,
 };
+
+static int alloc_vpid(struct vcpu_context *vcpu)
+{
+	int r;
+
+	WARN_ON(vcpu->vpid);
+
+	r = ida_alloc_range(&vmx_vpid_pool, 1, 65535, GFP_KERNEL_ACCOUNT);
+	if (r < 0)
+		return r;
+
+	vcpu->vpid = r;
+	return 0;
+}
+
+static void free_vpid(struct vcpu_context *vcpu)
+{
+	if (!vcpu->vpid)
+		return;
+	ida_free(&vmx_vpid_pool, vcpu->vpid);
+	vcpu->vpid = 0;
+}
 
 static void free_vmcs(struct vcpu_context *vcpu)
 {
@@ -272,6 +297,8 @@ static int setup_vmcs_control(struct vcpu_context *vcpu,
 		akvm_vcpu_passthru_msr_read(vcpu, msr_passthru[i]);
 		akvm_vcpu_passthru_msr_write(vcpu, msr_passthru[i]);
 	}
+
+	vmcs_write_16(VMX_VPID, vcpu->vpid);
 
 	return 0;
 }
@@ -1048,7 +1075,7 @@ void akvm_vcpu_sched_in(struct preempt_notifier *pn, int cpu)
 }
 
 void akvm_vcpu_sched_out(struct preempt_notifier *pn,
-			  struct task_struct *next)
+			 struct task_struct *next)
 {
 	struct vcpu_context *vcpu =
 		container_of(pn, struct vcpu_context, preempt_notifier);
@@ -1063,6 +1090,7 @@ static void akvm_deinit_vcpu(struct vcpu_context *vcpu)
 	vcpu_put(vcpu, true);
 	free_vmcs(vcpu);
 	free_page((unsigned long)vcpu->runtime);
+	free_vpid(vcpu);
 }
 
 static int akvm_vcpu_open(struct inode *inode, struct file *file)
@@ -1157,9 +1185,14 @@ static int akvm_init_vcpu(struct vcpu_context *vcpu)
 	int r;
 	struct akvm_vcpu_runtime *runtime;
 
+	r = alloc_vpid(vcpu);
+	if (r < 0)
+		return r;
+
 	r = alloc_vmcs(vcpu);
 	if (r)
-		return r;
+		goto fialed_free_vpid;
+
 	prepare_vmcs(vcpu->vmcs.vmcs,
 		     vmx_region_size(&vmx_capability),
 		     vmx_vmcs_revision(&vmx_capability));
@@ -1186,6 +1219,8 @@ failed_put:
 	free_page((unsigned long)runtime);
 failed_free_vmcs:
 	free_vmcs(vcpu);
+fialed_free_vpid:
+	free_vpid(vcpu);
 	return r;
 }
 

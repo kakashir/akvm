@@ -139,6 +139,7 @@ struct vcpu_context {
 	unsigned long cr0_read_shadow;
 	unsigned long cr4_host_mask;
 	unsigned long cr4_read_shadow;
+	unsigned int vpid;
 
 	struct exit_info exit_info;
 	unsigned long exit_info_available_mask;
