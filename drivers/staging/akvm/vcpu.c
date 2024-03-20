@@ -979,12 +979,11 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 
 	while(!r) {
 		if (signal_pending(current)) {
-			r = 1;
+			r = -EINTR;
 			break;
 		}
 
-		if (need_resched())
-			cond_resched();
+		cond_resched();
 
 		r = akvm_vcpu_handle_requests(vcpu);
 		if (r)
@@ -998,7 +997,7 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 		  out of this run loop for i.e. event handling.
 		*/
 		if (!set_run_state_enter_guest(vcpu)) {
-			r = 1;
+			r = -EFAULT;
 			goto irq_enable;
 		}
 
@@ -1033,7 +1032,7 @@ irq_enable:
 		if (exit_reason.failed) {
 			pr_info("%s: vmentry failed: 0x%x\n",
 				__func__, exit_reason.val);
-			r = -1;
+			r = -EFAULT;
 		}
 		if (r < 0)
 			dump_vmcs(vcpu);
