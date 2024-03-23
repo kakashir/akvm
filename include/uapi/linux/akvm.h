@@ -48,6 +48,31 @@ struct akvm_memory_slot {
 /* per vcpu */
 #define AKVM_VCPU_SET_RIP	_IOR(AKVMIO, 0x6, long)
 
+/* akvm dev level  */
+struct akvm_cpuid_entry {
+	__u32 leaf;
+	__u32 sub_leaf;
+	union {
+		__u32 data[4];
+		struct {
+			__u32 eax;
+			__u32 ebx;
+			__u32 ecx;
+			__u32 edx;
+		};
+	};
+};
+
+struct akvm_cpuid {
+	/*
+	  in: the entries number of entry[].
+	  out: the actual count writen by kernel
+	*/
+	__u64 count;
+	struct akvm_cpuid_entry *entry;
+};
+#define AKVM_GET_CPUID		_IOWR(AKVMIO, 0x7, struct akvm_cpuid)
+
 #define VM_SERVICE_SUCCESS 0LL
 
 struct akvm_vcpu_runtime {

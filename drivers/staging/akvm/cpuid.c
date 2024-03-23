@@ -1,6 +1,8 @@
 #include "cpuid.h"
 #include "x86.h"
 
+#define AKVM_MAX_BASIC_CPUID_LEAF 0x1f
+
 static u32 akvm_cpu_cap[NAKVMCAPINTS];
 
 enum cpuid_reg_type {
@@ -277,6 +279,204 @@ static void akvm_cpu_cap_adjust(void)
 	akvm_cpu_cap_define(AKVM_CPUID_7_2_EDX, C(MCDT_NO));
 }
 #undef C
+
+struct akvm_cpuid_entry_context {
+	struct akvm_cpuid_entry *entry;
+	u64 index;
+	u64 max_count;
+};
+
+static struct akvm_cpuid_entry*
+__get_cpuid_entry(struct akvm_cpuid_entry_context *ec)
+{
+	if (ec->index >= ec->max_count)
+		return NULL;
+	return &ec->entry[ec->index++];
+}
+
+static int cpuid_leaf_0(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry* e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = 0;
+	e->sub_leaf = 0;
+
+	raw_cpuid(e->leaf, e->sub_leaf,
+		  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	e->eax = min(AKVM_MAX_BASIC_CPUID_LEAF, e->eax);
+	return 0;
+}
+
+static int cpuid_leaf_1(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry* e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = 1;
+	e->sub_leaf = 0;
+
+	raw_cpuid(e->leaf, e->sub_leaf,
+		  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	e->ecx = akvm_cpu_cap[CPUID_1_ECX];
+	e->edx = akvm_cpu_cap[CPUID_1_EDX];
+	return 0;
+}
+
+static int cpuid_raw_leaf(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry* e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = leaf;
+	e->sub_leaf = 0;
+	raw_cpuid(e->leaf, e->sub_leaf,
+		  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	return 0;
+}
+
+static int cpuid_leaf_4(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	int sub_leaf = 0;
+	struct akvm_cpuid_entry* e;
+
+	do {
+		e = __get_cpuid_entry(ec);
+		if (!e)
+			return -E2BIG;
+
+		e->leaf = leaf;
+		e->sub_leaf = sub_leaf++;
+		raw_cpuid(e->leaf, e->sub_leaf,
+			  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	} while(e->eax != 0x0);
+
+	return 0;
+}
+
+static int cpuid_leaf_6(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry *e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = 6;
+	e->sub_leaf = 0;
+	e->eax = akvm_cpu_cap[CPUID_6_EAX];
+	e->ebx = 0;
+	e->ecx = 0;
+	e->edx = 0;
+
+	return 0;
+}
+
+static int cpuid_leaf_7(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry *e = __get_cpuid_entry(ec);
+	u32 max_sub_leaf = 2;
+
+	if (!e)
+		return -E2BIG;
+
+	/* only 2 sub leave are supported */
+	raw_cpuid(7, 0, &e->eax, &e->ebx, &e->ecx, &e->edx);
+	e->leaf = 7;
+	e->sub_leaf = 0;
+	e->eax = min(e->eax, max_sub_leaf);
+	e->ebx = akvm_cpu_cap[CPUID_7_0_EBX];
+	e->ecx = akvm_cpu_cap[CPUID_7_ECX];
+	e->edx = akvm_cpu_cap[CPUID_7_EDX];
+
+	max_sub_leaf = e->eax;
+	if (max_sub_leaf >= 1) {
+		e = __get_cpuid_entry(ec);
+		if (!e)
+			return -E2BIG;
+
+		e->leaf = 7;
+		e->sub_leaf = 1;
+		e->eax = akvm_cpu_cap[CPUID_7_1_EAX];
+		e->ebx = akvm_cpu_cap[AKVM_CPUID_7_1_EBX];
+		e->ecx = akvm_cpu_cap[AKVM_CPUID_7_1_ECX];
+		e->edx = akvm_cpu_cap[AKVM_CPUID_7_1_EDX];
+	}
+
+	if (max_sub_leaf >= 2) {
+		e = __get_cpuid_entry(ec);
+		if (!e)
+			return -E2BIG;
+
+		e->leaf = 7;
+		e->sub_leaf = 2;
+		e->eax = akvm_cpu_cap[AKVM_CPUID_7_2_EAX];
+		e->ebx = akvm_cpu_cap[AKVM_CPUID_7_2_EBX];
+		e->eax = akvm_cpu_cap[AKVM_CPUID_7_2_ECX];
+		e->edx = akvm_cpu_cap[AKVM_CPUID_7_2_EDX];
+	}
+
+	return 0;
+}
+
+static
+int (*cpuid_basic_leaf_handler[])(struct akvm_cpuid_entry_context*, int) =
+{
+	[0] = cpuid_leaf_0,
+	[1] = cpuid_leaf_1,
+	[2] = cpuid_raw_leaf,
+	[4] = cpuid_leaf_4,
+	[6] = cpuid_leaf_6,
+	[7] = cpuid_leaf_7,
+};
+
+static int call_cpuid_basic_leaf_handler(struct akvm_cpuid_entry_context *ec,
+					 u32 leaf)
+{
+	/* overflow checking for cpuids ignored by akvm */
+	if (leaf * sizeof(cpuid_basic_leaf_handler[0]) >=
+	    sizeof(cpuid_basic_leaf_handler))
+		return 0;
+
+	if (!cpuid_basic_leaf_handler[leaf])
+		return 0;
+
+	return cpuid_basic_leaf_handler[leaf](ec, leaf);
+}
+
+int akvm_get_cpuid_entry(struct akvm_cpuid_entry *entry,
+			 u64 *count)
+{
+	struct akvm_cpuid_entry_context ec;
+	int eax, ebx, ecx, edx;
+	int leaf, max_leaf;
+	int r;
+
+	ec.entry = entry;
+	ec.index = 0;
+	ec.max_count = *count;
+
+	get_cpu();
+
+	raw_cpuid(0x0, 0x0, &eax, &ebx, &ecx, &edx);
+	max_leaf = min(AKVM_MAX_BASIC_CPUID_LEAF, eax);
+	for (leaf = 0; leaf <= max_leaf; ++leaf) {
+		r = call_cpuid_basic_leaf_handler(&ec, leaf);
+		if (r)
+			break;
+	}
+
+	put_cpu();
+
+	if (!r)
+		*count = ec.index;
+	return r;
+}
 
 int akvm_cpuid_init(void)
 {

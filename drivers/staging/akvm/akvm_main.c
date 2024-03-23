@@ -197,6 +197,37 @@ static int akvm_ioctl_create_vm(struct file *f)
 	return r;
 }
 
+static int  akvm_ioctl_get_cpuid(struct file *f, unsigned long param)
+{
+	struct akvm_cpuid_entry *entry;
+	struct akvm_cpuid p;
+	int r;
+
+	if (copy_from_user(&p, (void __user *)param, sizeof(p)))
+		return -EFAULT;
+
+	entry = kmalloc(p.count * sizeof(*entry), GFP_KERNEL_ACCOUNT);
+	if (!entry)
+		return -ENOMEM;
+
+	r = akvm_get_cpuid_entry(entry, &p.count);
+	if (r)
+		goto exit;
+
+	if (copy_to_user((void __user *)p.entry, entry,
+			 p.count * sizeof(*entry))) {
+		r = -EFAULT;
+		goto exit;
+	}
+
+	if (copy_to_user((void __user *)param, &p, sizeof(p)))
+		r = -EFAULT;
+exit:
+	kfree(entry);
+	return r;
+
+}
+
 static int akvm_dev_open(struct inode *inode, struct file *file)
 {
 	file->private_data = NULL;
@@ -223,6 +254,9 @@ static long akvm_dev_ioctl(struct file *f, unsigned int ioctl,
 		break;
 	case AKVM_GET_VMX_INFO:
 		r = akvm_ioctl_get_vmx_info(f, param);
+		break;
+	case AKVM_GET_CPUID:
+		r = akvm_ioctl_get_cpuid(f, param);
 		break;
 	default:
 		r = -EINVAL;
