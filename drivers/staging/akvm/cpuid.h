@@ -2,6 +2,7 @@
 #define __CPUID_H
 
 #include <linux/types.h>
+#include <uapi/linux/akvm.h>
 #include <asm/cpufeature.h>
 #include "common.h"
 
@@ -113,5 +114,6 @@ enum akvm_cpuid_leafs {
 #define X86_FEATURE_MCDT_NO (AKVM_CPUID_7_2_EDX * 32 + 0)
 
 int akvm_cpuid_init(void);
+int akvm_get_cpuid_entry(struct akvm_cpuid_entry *entry, u64 *count);
 
 #endif
