@@ -83,11 +83,11 @@ int vmx_on(struct vmx_region *vmx_region)
 	unsigned long pa = __pa(vmx_region);
 
 	cr4_set_bits(X86_CR4_VMXE);
-	asm_volatile_goto("1: vmxon %0\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : : "m"(pa)
-			  : : fault, failinvalid);
+	asm volatile goto("1: vmxon %0\n\t"
+		 "jc %l[failinvalid]\n\t"
+		 _ASM_EXTABLE(1b, %l[fault])
+		 : : "m"(pa)
+		 : : fault, failinvalid);
 	vmx_pr_info("VMXON!\n");
 	return 0;
  fault:
@@ -101,9 +101,9 @@ int vmx_on(struct vmx_region *vmx_region)
 
 void vmx_off(void)
 {
-	asm_volatile_goto("1: vmxoff\n\r"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : : : : fault);
+	asm volatile goto("1: vmxoff\n\r"
+		 _ASM_EXTABLE(1b, %l[fault])
+		 : : : : fault);
  fault:
 	cr4_clear_bits(X86_CR4_VMXE);
 	vmx_pr_info("VMXOFF!\n");
@@ -124,13 +124,13 @@ int vmcs_load(struct vmx_vmcs *vmcs)
 {
 	unsigned long pa = __pa(vmcs);
 
-	asm_volatile_goto("1: vmptrld %0\n\t"
-			  "jz %l[fail]\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : :"m"(pa)
-			  : "cc"
-			  : fault, fail, failinvalid);
+	asm volatile goto("1: vmptrld %0\n\t"
+		 "jz %l[fail]\n\t"
+		 "jc %l[failinvalid]\n\t"
+		 _ASM_EXTABLE(1b, %l[fault])
+		 : :"m"(pa)
+		 : "cc"
+		 : fault, fail, failinvalid);
 
 	return 0;
  fault:
@@ -150,13 +150,13 @@ void vmcs_clear(struct vmx_vmcs *vmcs)
 {
 	unsigned long pa = __pa(vmcs);
 
-	asm_volatile_goto("1: vmclear %0\n\t"
-			  "jz %l[fail]\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : :"m"(pa)
-			  : "cc"
-			  : fault, fail, failinvalid);
+	asm volatile goto("1: vmclear %0\n\t"
+		 "jz %l[fail]\n\t"
+		 "jc %l[failinvalid]\n\t"
+		 _ASM_EXTABLE(1b, %l[fault])
+		 : :"m"(pa)
+		 : "cc"
+		 : fault, fail, failinvalid);
 	return;
  fault:
 	pr_err("vmcs_clear() fault:0x%lx\n", (unsigned long)vmcs);
@@ -175,14 +175,14 @@ unsigned long __vmcs_read(vmcs_field field)
 {
 	unsigned long val;
 
-	asm_volatile_goto("mov %1, %%eax\n\t"
-			  "1: vmread %%rax, %0\n\t"
-			  "jz %l[fail]\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  :"=m"(val)
-			  :"q"(field)
-			  : : fault, fail, failinvalid);
+	asm volatile goto("mov %1, %%eax\n\t"
+		 "1: vmread %%rax, %0\n\t"
+		 "jz %l[fail]\n\t"
+		 "jc %l[failinvalid]\n\t"
+		 _ASM_EXTABLE(1b, %l[fault])
+		 :"=m"(val)
+		 :"q"(field)
+		 : : fault, fail, failinvalid);
 	return val;
  fault:
 	pr_err("%s() fault: field:0x%x\n", __func__, field);
@@ -197,14 +197,14 @@ unsigned long __vmcs_read(vmcs_field field)
 
 void __vmcs_write(vmcs_field field, unsigned long val)
 {
-	asm_volatile_goto("mov %1, %%eax\n\t"
-			  "1: vmwrite %0, %%rax\n\t"
-			  "jz %l[fail]\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  : : "m"(val), "q"(field)
-			  : "memory"
-			  : fault, fail, failinvalid);
+	asm volatile goto("mov %1, %%eax\n\t"
+		 "1: vmwrite %0, %%rax\n\t"
+		 "jz %l[fail]\n\t"
+		 "jc %l[failinvalid]\n\t"
+		 _ASM_EXTABLE(1b, %l[fault])
+		 : : "m"(val), "q"(field)
+		 : "memory"
+		 : fault, fail, failinvalid);
 	return;
  fault:
 	pr_err("%s() fault: field:0x%x\n", __func__, field);

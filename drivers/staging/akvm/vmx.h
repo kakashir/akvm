@@ -384,12 +384,12 @@ static inline int __invept(unsigned long ept_root)
 	unsigned long type = ept_root ? 1 : 2;
 	unsigned long inv_desc[2] = {ept_root, 0};
 
-	asm_volatile_goto("1: invept %0, %1\n\t"
-			  "jz %l[fail]\n\t"
-			  "jc %l[failinvalid]\n\t"
-			  _ASM_EXTABLE(1b, %l[fault])
-			  ::"m"(inv_desc), "q"(type)
-			  ::fault, fail, failinvalid);
+	asm volatile goto("1: invept %0, %1\n\t"
+		 "jz %l[fail]\n\t"
+		 "jc %l[failinvalid]\n\t"
+		 _ASM_EXTABLE(1b, %l[fault])
+		 ::"m"(inv_desc), "q"(type)
+		 ::fault, fail, failinvalid);
 	return 0;
  fault:
 	pr_err("%s() fault: ept_root:0x%lx\n", __func__, inv_desc[0]);
