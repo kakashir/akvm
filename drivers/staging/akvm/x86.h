@@ -267,4 +267,13 @@ static inline void write_dr(int index, unsigned long val)
 bool x86_excep_df(int first_excep, int sec_excep);
 enum x86_event_type x86_excep_event_type(int excep_number);
 
+static inline void raw_cpuid(int leaf, int sub_leaf,
+		      int* eax, int *ebx, int *ecx, int *edx)
+{
+	asm volatile("cpuid\n\r"
+		     : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+		     : "a"(leaf), "c"(sub_leaf)
+		     : "memory");
+}
+
 #endif

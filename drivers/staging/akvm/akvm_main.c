@@ -16,6 +16,7 @@
 #include "vmx.h"
 #include "vm.h"
 #include "vcpu.h"
+#include "cpuid.h"
 
 #ifdef _DEBUG
 #define akvm_pr_info pr_info
@@ -281,6 +282,8 @@ static void __exit akvm_exit(void)
 static int do_akvm_init(void)
 {
 	int cpu;
+
+	akvm_cpuid_init();
 
 	for_each_possible_cpu(cpu)
 		INIT_LIST_HEAD(&per_cpu(vmcs_list, cpu).head);
