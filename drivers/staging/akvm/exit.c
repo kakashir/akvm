@@ -81,7 +81,8 @@ static int handle_vmcall(struct vcpu_context *vcpu)
 	runtime->vm_service.in_out[3] = akvm_vcpu_read_register(vcpu, GPR_RCX);
 	runtime->vm_service.in_out[4] = akvm_vcpu_read_register(vcpu, GPR_R8);
 	runtime->vm_service.in_out[5] = akvm_vcpu_read_register(vcpu, GPR_R9);
-	runtime->vm_service.ret =  VM_SERVICE_SUCCESS;
+	runtime->vm_service.in_out_count = AKVM_VM_SERVICE_IN_OUT_COUNT;
+	runtime->vm_service.ret = VM_SERVICE_SUCCESS;
 
 	akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE,
 			      false);
