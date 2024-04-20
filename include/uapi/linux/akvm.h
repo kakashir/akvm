@@ -77,12 +77,14 @@ struct akvm_cpuid {
 
 struct akvm_vcpu_runtime {
 #define AKVM_EXIT_VM_SERVICE 1 /* see "vm_service" */
+#define AKVM_VM_SERVICE_IN_OUT_COUNT 6
 	__u64 exit_reason;
 	union {
 		struct {
 			__u64 type;
-			__u64 in_out[6];
 			__u64 ret;
+			__u64 in_out_count;
+			__u64 in_out[AKVM_VM_SERVICE_IN_OUT_COUNT];
 		} vm_service;
 	};
 };
