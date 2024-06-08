@@ -160,6 +160,7 @@ struct vcpu_context {
 	unsigned long regs_dirty_mask;
 
 	struct akvm_vcpu_runtime  *runtime;
+	struct akvm_cpuid cpuid;
 };
 
 int akvm_create_vcpu(struct file *vm_file,
