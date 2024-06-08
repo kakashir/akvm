@@ -73,6 +73,9 @@ struct akvm_cpuid {
 };
 #define AKVM_GET_CPUID		_IOWR(AKVMIO, 0x7, struct akvm_cpuid)
 
+/* Set per cpu guest cpuid */
+#define AKVM_VCPU_SET_CPUID	_IOW(AKVMIO, 0x8, struct akvm_cpuid)
+
 #define VM_SERVICE_SUCCESS 0LL
 
 struct akvm_vcpu_runtime {

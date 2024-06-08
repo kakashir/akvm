@@ -1090,6 +1090,7 @@ static void akvm_deinit_vcpu(struct vcpu_context *vcpu)
 	free_vmcs(vcpu);
 	free_page((unsigned long)vcpu->runtime);
 	free_vpid(vcpu);
+	kfree(vcpu->cpuid.entry);
 }
 
 static int akvm_vcpu_open(struct inode *inode, struct file *file)
@@ -1118,6 +1119,34 @@ static int akvm_vcpu_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static int akvm_ioctl_set_cpuid(struct vcpu_context *vcpu, unsigned long param)
+{
+	struct akvm_cpuid c;
+	struct akvm_cpuid_entry *e;
+	int r;
+
+	r = copy_from_user(&c, (const void __user*)param, sizeof(c));
+	if (r)
+		return -EFAULT;
+
+	if (!c.count)
+		return -EINVAL;
+
+	e = kmalloc(sizeof(*e) * c.count, GFP_KERNEL_ACCOUNT);
+	if (!e)
+		return -ENOMEM;
+
+	if (copy_from_user(e, c.entry, c.count * sizeof(*e))) {
+		kfree(e);
+		return -EFAULT;
+	}
+
+	kfree(vcpu->cpuid.entry);
+	vcpu->cpuid.count = c.count;
+	vcpu->cpuid.entry = e;
+	return r;
+}
+
 static long akvm_vcpu_ioctl(struct file *f, unsigned int ioctl,
 			  unsigned long param)
 {
@@ -1135,6 +1164,9 @@ static long akvm_vcpu_ioctl(struct file *f, unsigned int ioctl,
 		break;
 	case AKVM_VCPU_SET_RIP:
 		r = akvm_ioctl_set_rip(vcpu, param);
+		break;
+	case AKVM_VCPU_SET_CPUID:
+		r = akvm_ioctl_set_cpuid(vcpu, param);
 		break;
 	default:
 		r = -EINVAL;
