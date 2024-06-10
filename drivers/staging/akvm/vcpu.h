@@ -229,4 +229,7 @@ int akvm_vcpu_inject_gp(struct vcpu_context *vcpu, unsigned long error_code);
 void akvm_vcpu_set_immediate_exit(struct vcpu_context *vcpu);
 void akvm_vcpu_clear_immediate_exit(struct vcpu_context *vcpu);
 
+#define NO_SUB_LEAF 0xfffffffe
+struct akvm_cpuid_entry *akvm_vcpu_find_cpuid(struct akvm_cpuid *cpuid,
+					      int leaf, int sub_leaf);
 #endif

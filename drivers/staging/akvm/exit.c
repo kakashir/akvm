@@ -373,9 +373,34 @@ static int handle_preempt_timer(struct vcpu_context *vcpu)
 	return 0;
 }
 
+static int handle_cpuid(struct vcpu_context *vcpu)
+{
+	struct akvm_cpuid_entry *e;
+	int leaf;
+	int sub_leaf;
+	struct akvm_cpuid_entry r;
+
+	leaf = akvm_vcpu_read_register(vcpu, GPR_RAX);
+	sub_leaf = akvm_vcpu_read_register(vcpu, GPR_RCX);
+
+	e = akvm_vcpu_find_cpuid(&vcpu->cpuid, leaf, sub_leaf);
+	if (!e)
+		r.eax = r.ebx = r.ecx = r.edx = 0x0;
+	else
+		r = *e;
+
+	akvm_vcpu_write_register(vcpu, GPR_RAX, r.eax);
+	akvm_vcpu_write_register(vcpu, GPR_RBX, r.ebx);
+	akvm_vcpu_write_register(vcpu, GPR_RCX, r.ecx);
+	akvm_vcpu_write_register(vcpu, GPR_RDX, r.edx);
+
+	return akvm_vcpu_skip_instruction(vcpu);
+}
+
 static vm_exit_handler exit_handler[VMX_EXIT_MAX_NUMBER] =
 {
 	[VMX_EXIT_INTR] = handle_ignore,
+	[VMX_EXIT_CPUID] = handle_cpuid,
 	[VMX_EXIT_VMCALL] = handle_vmcall,
 	[VMX_EXIT_CR] = handle_cr,
 	[VMX_EXIT_RDMSR] = handle_rdmsr,

@@ -146,6 +146,7 @@ union vmx_exit_reason {
 };
 #define VMX_EXIT_EXCEP_NMI  0
 #define VMX_EXIT_INTR  1
+#define VMX_EXIT_CPUID 10
 #define VMX_EXIT_VMCALL 18
 #define VMX_EXIT_CR 28
 #define VMX_EXIT_RDMSR 31
