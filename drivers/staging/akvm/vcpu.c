@@ -1543,3 +1543,23 @@ void akvm_vcpu_clear_immediate_exit(struct vcpu_context *vcpu)
 	vcpu->pinbase_ctl &= ~VMX_PINBASE_PREEMPT_TIMER;
 	vmcs_write_32(VMX_PINBASE_CTL, vcpu->pinbase_ctl);
 }
+
+struct akvm_cpuid_entry *akvm_vcpu_find_cpuid(struct akvm_cpuid *cpuid,
+					      int leaf, int sub_leaf)
+{
+	if (!cpuid)
+		return NULL;
+	if (!cpuid->count || !cpuid->entry)
+		return NULL;
+
+	for (int i = 0; i < cpuid->count; ++i) {
+		if (cpuid->entry[i].leaf != leaf)
+			continue;
+		if (sub_leaf != NO_SUB_LEAF &&
+		    cpuid->entry[i].sub_leaf != sub_leaf)
+			continue;
+		return &cpuid->entry[i];
+	}
+
+	return NULL;
+}
