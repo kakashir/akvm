@@ -424,9 +424,9 @@ static int cpuid_leaf_7(struct akvm_cpuid_entry_context *ec, int leaf)
 	return 0;
 }
 
-static
-int (*cpuid_basic_leaf_handler[])(struct akvm_cpuid_entry_context*, int) =
-{
+typedef int (*cpuid_leaf_get_handler)(struct akvm_cpuid_entry_context* c, int leaf);
+
+static cpuid_leaf_get_handler cpuid_basic_leaf_get_handler[] = {
 	[0] = cpuid_leaf_0,
 	[1] = cpuid_leaf_1,
 	[2] = cpuid_raw_leaf,
@@ -435,18 +435,20 @@ int (*cpuid_basic_leaf_handler[])(struct akvm_cpuid_entry_context*, int) =
 	[7] = cpuid_leaf_7,
 };
 
-static int call_cpuid_basic_leaf_handler(struct akvm_cpuid_entry_context *ec,
-					 u32 leaf)
+static int call_cpuid_leaf_get_handler(cpuid_leaf_get_handler *handler,
+				       int handler_count,
+				       struct akvm_cpuid_entry_context *ec,
+				       u32 leaf)
 {
-	/* overflow checking for cpuids ignored by akvm */
-	if (leaf * sizeof(cpuid_basic_leaf_handler[0]) >=
-	    sizeof(cpuid_basic_leaf_handler))
+	int index = leaf & 0xffff;
+
+	if (index >= handler_count)
 		return 0;
 
-	if (!cpuid_basic_leaf_handler[leaf])
+	if (!handler[index])
 		return 0;
 
-	return cpuid_basic_leaf_handler[leaf](ec, leaf);
+	return handler[index](ec, leaf);
 }
 
 int akvm_get_cpuid_entry(struct akvm_cpuid_entry *entry,
@@ -466,7 +468,9 @@ int akvm_get_cpuid_entry(struct akvm_cpuid_entry *entry,
 	raw_cpuid(0x0, 0x0, &eax, &ebx, &ecx, &edx);
 	max_leaf = min(AKVM_MAX_BASIC_CPUID_LEAF, eax);
 	for (leaf = 0; leaf <= max_leaf; ++leaf) {
-		r = call_cpuid_basic_leaf_handler(&ec, leaf);
+		r = call_cpuid_leaf_get_handler(cpuid_basic_leaf_get_handler,
+						ARRAY_SIZE(cpuid_basic_leaf_get_handler),
+						&ec, leaf);
 		if (r)
 			break;
 	}
