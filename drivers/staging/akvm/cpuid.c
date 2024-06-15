@@ -2,6 +2,7 @@
 #include "x86.h"
 
 #define AKVM_MAX_BASIC_CPUID_LEAF 0x1f
+#define AKVM_MAX_EXTEND_CPUID_LEAF 0x80000008
 
 static u32 akvm_cpu_cap[NAKVMCAPINTS];
 
@@ -50,6 +51,7 @@ static struct akvm_reverse_cpuid_entry akvm_reverse_cpuid[NAKVMCAPINTS] = {
 	[AKVM_CPUID_7_2_EBX]	= R_CPUID(0x7, 2, REG_EBX),
 	[AKVM_CPUID_7_2_ECX]	= R_CPUID(0x7, 2, REG_ECX),
 	[AKVM_CPUID_7_2_EDX]	= R_CPUID(0x7, 2, REG_EDX),
+	[AKVM_CPUID_8000_0007_EDX] = R_CPUID(0x80000007, 0, REG_EDX),
 #undef R_CPUID
 };
 
@@ -105,6 +107,7 @@ static const char *cpuid_leaf_to_str(int cpuid_leaf)
 	__LEAF_TO_STR(AKVM_CPUID_7_2_EBX);
 	__LEAF_TO_STR(AKVM_CPUID_7_2_ECX);
 	__LEAF_TO_STR(AKVM_CPUID_7_2_EDX);
+	__LEAF_TO_STR(AKVM_CPUID_8000_0007_EDX);
 	default:
 		return "unknown cpuid leaf";
 	}
@@ -188,7 +191,9 @@ static void akvm_cpu_cap_adjust(void)
 			  /* C(XMM2) */ C(SELFSNOOP) /* C(HT) C(ACC) */
 			  /* C(IA64) C(PBE) */);
 
-	/* No adjustment for AMD CPUID_8000_0001_EDX */
+	akvm_cpu_cap_init(CPUID_8000_0001_EDX,
+			  C(SYSCALL) | C(NX) | C(GBPAGES) | C(LM));
+
 	/* No adjustment for Transmeta CPUID_8086_0001_EDX */
 	/* No adjustment for CPUID_LNX_1 */
 
@@ -203,7 +208,17 @@ static void akvm_cpu_cap_adjust(void)
 			  /* C(F16C) */	C(RDRAND) /* C(HYPERVISOR) */);
 
 	/* No adjustment to VIA/Cyrix/Centaur CPUID_C000_0001_EDX */
-	/* No adjustment to AMD CPUID_8000_0001_ECX */
+
+	/*
+	  ABM and 3DNOWPREFETCH are AMD defined feature bit, but
+	  also used for INTEL:
+		bit0 LAHF/SAHF in long mode
+		btt5 LZCNT
+		bit8 PREFETCHW
+	*/
+	akvm_cpu_cap_init(CPUID_8000_0001_ECX,
+			  C(LAHF_LM) | C(ABM) | C(3DNOWPREFETCH));
+
 	/* No adjustment to CPUID_LNX_2 */
 	/* No adjustment to CPUID_LNX_3 */
 
@@ -229,7 +244,7 @@ static void akvm_cpu_cap_adjust(void)
 			  /* C(AMX_FP16) C(AVX_IFMA) C(LAM) C(ARCH_PERFMON_EXT) */
 			  /* C(LKGS) | C(LAM) */);
 
-	/* No adjustment for AMD CPUID_8000_0008_EBX */
+	akvm_cpu_cap_init(CPUID_8000_0008_EBX, C(WBNOINVD));
 
 	/* only ARAT is allowed for thermal and power leaf 0x6 */
 	akvm_cpu_cap_init(CPUID_6_EAX,
@@ -246,8 +261,6 @@ static void akvm_cpu_cap_adjust(void)
 			  /* C(TME) C(AVX512_VPOPCNTDQ) C(LA57) C(RDPID) */
 			  /* C(BUS_LOCK_DETECT) */ C(CLDEMOTE) | C(MOVDIRI) | C(MOVDIR64B)
 			  /* C(ENQCMD) C(SGX_LC) */);
-
-	/* No adjustment for AMD CPUID_8000_0007_EBX */
 
 	akvm_cpu_cap_init(CPUID_7_EDX,
 			  /* C(AVX512_4VNNIW) C(AVX512_4FMAPS) */ C(FSRM) |
@@ -277,6 +290,8 @@ static void akvm_cpu_cap_adjust(void)
 	akvm_cpu_cap_define(AKVM_CPUID_7_2_ECX, 0);
 
 	akvm_cpu_cap_define(AKVM_CPUID_7_2_EDX, C(MCDT_NO));
+
+	akvm_cpu_cap_define(AKVM_CPUID_8000_0007_EDX, C(INVAR_TSC));
 }
 #undef C
 
@@ -435,6 +450,81 @@ static cpuid_leaf_get_handler cpuid_basic_leaf_get_handler[] = {
 	[7] = cpuid_leaf_7,
 };
 
+static int cpuid_leaf_80000000(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry* e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = leaf;
+	e->sub_leaf = 0;
+
+	raw_cpuid(e->leaf, e->sub_leaf,
+		  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	e->eax = min(AKVM_MAX_EXTEND_CPUID_LEAF, e->eax);
+	return 0;
+}
+
+static int cpuid_leaf_80000001(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry* e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = leaf;
+	e->sub_leaf = 0;
+
+	raw_cpuid(e->leaf, e->sub_leaf,
+		  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	e->ecx = akvm_cpu_cap[CPUID_8000_0001_ECX];
+	e->edx = akvm_cpu_cap[CPUID_8000_0001_EDX];
+
+	return 0;
+}
+
+static int cpuid_leaf_80000007(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry* e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = leaf;
+	e->sub_leaf = 0;
+
+	raw_cpuid(e->leaf, e->sub_leaf,
+		  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	e->edx = akvm_cpu_cap[AKVM_CPUID_8000_0007_EDX];
+
+	return 0;
+}
+
+static int cpuid_leaf_80000008(struct akvm_cpuid_entry_context *ec, int leaf)
+{
+	struct akvm_cpuid_entry* e = __get_cpuid_entry(ec);
+
+	if (!e)
+		return -E2BIG;
+
+	e->leaf = leaf;
+	e->sub_leaf = 0;
+
+	raw_cpuid(e->leaf, e->sub_leaf,
+		  &e->eax, &e->ebx, &e->ecx, &e->edx);
+	e->ebx = akvm_cpu_cap[CPUID_8000_0008_EBX];
+
+	return 0;
+}
+
+static cpuid_leaf_get_handler cpuid_extend_leaf_get_handler[] = {
+	[0] = cpuid_leaf_80000000,
+	[1] = cpuid_leaf_80000001,
+	[7] = cpuid_leaf_80000007,
+	[8] = cpuid_leaf_80000008,
+};
+
 static int call_cpuid_leaf_get_handler(cpuid_leaf_get_handler *handler,
 				       int handler_count,
 				       struct akvm_cpuid_entry_context *ec,
@@ -455,9 +545,28 @@ int akvm_get_cpuid_entry(struct akvm_cpuid_entry *entry,
 			 u64 *count)
 {
 	struct akvm_cpuid_entry_context ec;
-	int eax, ebx, ecx, edx;
-	int leaf, max_leaf;
+	unsigned int leaf, max_leaf, unused;
 	int r;
+
+	struct {
+		unsigned int count_leaf;
+		unsigned int start_leaf;
+		unsigned int max_leaf;
+		cpuid_leaf_get_handler *handler;
+		int handler_count;
+	} cpuids[] = {
+		{
+			0x0, 0x0, AKVM_MAX_BASIC_CPUID_LEAF,
+			cpuid_basic_leaf_get_handler,
+			ARRAY_SIZE(cpuid_basic_leaf_get_handler)
+		},
+		{
+			0x80000000, 0x80000000,
+			AKVM_MAX_EXTEND_CPUID_LEAF,
+			cpuid_extend_leaf_get_handler,
+			ARRAY_SIZE(cpuid_extend_leaf_get_handler)
+		},
+	};
 
 	ec.entry = entry;
 	ec.index = 0;
@@ -465,14 +574,17 @@ int akvm_get_cpuid_entry(struct akvm_cpuid_entry *entry,
 
 	get_cpu();
 
-	raw_cpuid(0x0, 0x0, &eax, &ebx, &ecx, &edx);
-	max_leaf = min(AKVM_MAX_BASIC_CPUID_LEAF, eax);
-	for (leaf = 0; leaf <= max_leaf; ++leaf) {
-		r = call_cpuid_leaf_get_handler(cpuid_basic_leaf_get_handler,
-						ARRAY_SIZE(cpuid_basic_leaf_get_handler),
-						&ec, leaf);
-		if (r)
-			break;
+	for (int i = 0; i < ARRAY_SIZE(cpuids); ++i) {
+		raw_cpuid(cpuids[i].count_leaf, 0x0, &max_leaf,
+			  &unused, &unused, &unused);
+		max_leaf = min(max_leaf, cpuids[i].max_leaf);
+		for (leaf = cpuids[i].start_leaf; leaf <= max_leaf; ++leaf) {
+			r = call_cpuid_leaf_get_handler(cpuids[i].handler,
+							cpuids[i].handler_count,
+							&ec, leaf);
+			if (r)
+				break;
+		}
 	}
 
 	put_cpu();
