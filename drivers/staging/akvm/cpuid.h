@@ -102,6 +102,7 @@ enum akvm_cpuid_leafs {
 	AKVM_CPUID_7_2_EBX,
 	AKVM_CPUID_7_2_ECX,
 	AKVM_CPUID_7_2_EDX,
+	AKVM_CPUID_8000_0007_EDX,
 
 	NAKVMCAPINTS,
 };
@@ -112,6 +113,8 @@ enum akvm_cpuid_leafs {
 #define X86_FEATURE_CET_SSS (AKVM_CPUID_7_1_EDX * 32 + 18)
 
 #define X86_FEATURE_MCDT_NO (AKVM_CPUID_7_2_EDX * 32 + 0)
+
+#define X86_FEATURE_INVAR_TSC (AKVM_CPUID_8000_0007_EDX * 32 + 8)
 
 int akvm_cpuid_init(void);
 int akvm_get_cpuid_entry(struct akvm_cpuid_entry *entry, u64 *count);
