@@ -53,6 +53,7 @@ struct akvm_mmu_walker {
 
 	spte *sptep[AKVM_MMU_MAX_LEVEL];
 	gpa gpa[AKVM_MMU_MAX_LEVEL];
+	bool valid;
 };
 
 struct akvm_mmu_page {
@@ -147,12 +148,16 @@ static void akvm_mmu_walk_begin(struct akvm_mmu_walker *walker,
 	walker->target_gpa = start;
 	walker->start = start;
 	walker->end = end;
+	walker->valid = true;
 
 	__akvm_mmu_walk_read_spte(walker);
 }
 
 static bool akvm_mmu_walk_continue(struct akvm_mmu_walker *walker)
 {
+	if (!walker->valid)
+		return false;
+
 	if (walker->end <= walker->start)
 		return false;
 
@@ -185,14 +190,18 @@ static bool akvm_mmu_walk_down(struct akvm_mmu_walker *walker)
 
 static bool akvm_mmu_walk_side(struct akvm_mmu_walker *walker)
 {
-	walker->target_gpa = walker->cur_gpa +
-		(1ULL << AKVM_GPA_SHIFT(walker->cur_level));
-
 	if (__spte_at_end(walker->cur_sptep))
 		return false;
 
-	if (!akvm_mmu_walk_continue(walker))
-		return false;
+	/*
+	  limit the next gpa to end, thus the target_gpa will
+	  stop at walker->end when return from down to up for
+	  stopping travel the page table
+	 */
+	walker->target_gpa = min(walker->end,
+				 walker->cur_gpa +
+				 (1ULL << AKVM_GPA_SHIFT(walker->cur_level)));
+
 	__akvm_mmu_walk_read_spte(walker);
 	return true;
 }
@@ -211,14 +220,14 @@ static void akvm_mmu_walk_next(struct akvm_mmu_walker *walker)
 {
 	if (akvm_mmu_walk_down(walker))
 		return;
-	if (akvm_mmu_walk_side(walker))
-		return;
 
 	while (1) {
-		if (!akvm_mmu_walk_up(walker))
-			return;
 		if (akvm_mmu_walk_side(walker))
 			return;
+		if (!akvm_mmu_walk_up(walker)) {
+			walker->valid = false;
+			return;
+		}
 	}
 }
 
