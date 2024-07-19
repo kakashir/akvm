@@ -18,6 +18,7 @@ struct mmu_context {
 	struct list_head page_list;
 	unsigned long root;
 	int level;
+	unsigned long data_page_count;
 };
 
 int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level);
