@@ -387,7 +387,7 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 	struct akvm_mmu_walker walker;
 	enum akvm_page_level max_level = mmu->level;
 	enum akvm_page_level min_level = AKVM_PAGE_LEVEL_1;
-	void *root = (void*)mmu->root;
+	void *root;
 #if 0
 	/* Test data debug purpose only */
 	gpa start = ((4ULL << 12) |			\
@@ -401,6 +401,7 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 #endif
 	write_lock(&mmu->lock);
 
+	root = (void*)mmu->root;
 	akvm_mmu_for_each(&walker, root, max_level, min_level, start, end) {
 		if (signal_pending(current)) {
 			r = 1;
@@ -479,14 +480,13 @@ static void __akvm_free_mmu_page_table(struct mmu_context *mmu,
 static void akvm_free_mmu_page_table(struct mmu_context *mmu,
 				     gpa start, gpa end)
 {
-	void *root = (void*)mmu->root;
-
-	if (!root)
-		return;
+	void *root;
 
 	write_lock(&mmu->lock);
 
-	__akvm_free_mmu_page_table(mmu, root, mmu->level, start, end);
+	root = (void*)mmu->root;
+	if (root)
+		__akvm_free_mmu_page_table(mmu, root, mmu->level, start, end);
 
 	write_unlock(&mmu->lock);
 }
