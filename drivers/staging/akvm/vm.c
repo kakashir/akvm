@@ -429,13 +429,15 @@ int akvm_vm_gpa_to_memory_slot(struct vm_context *vm, gpa gpa_addr, gpa gpa_end,
 {
 	struct interval_tree_node *search;
 	struct rb_root_cached *root;
+	struct vm_memory_space *ms;
 	gpa start = gpa_addr;
 	gpa last = gpa_end - 1;
 
-	if (!vm->memory)
+	ms = srcu_dereference(vm->memory, &vm->srcu);
+	if (!ms)
 		return -EINVAL;
 
-	root = &vm->memory->root[VM_MEM_ROOT_GPA];
+	root = &ms->root[VM_MEM_ROOT_GPA];
 	if (!root)
 		return -EINVAL;
 
