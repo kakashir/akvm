@@ -3,6 +3,7 @@
 #include "mmu.h"
 #include "vmx.h"
 #include "vm.h"
+#include "vcpu.h"
 
 #ifdef DEBUG
 #define akvm_mmu_pr_info pr_info
@@ -544,4 +545,48 @@ unsigned long akvm_mmu_root_page(struct mmu_context *mmu,
 		root |= VMX_EPT_ENABLE_AD_BITS;
 
 	return root;
+}
+
+void akvm_mmu_zap_memory_slot(struct mmu_context *mmu,
+			      struct vm_memory_slot *slot)
+{
+	struct akvm_mmu_walker walker;
+	struct vcpu_context *vcpu;
+	enum akvm_page_level level;
+	unsigned long i;
+	void *root;
+	spte spte;
+	int flush = 0;
+
+	write_lock(&mmu->lock);
+
+	root = (void*)mmu->root;
+	if (!root)
+		goto unlock;
+
+	akvm_mmu_for_each(&walker, root, mmu->level, AKVM_PAGE_LEVEL_1,
+			  slot->gpa, memory_slot_gpa_end(slot)) {
+		spte = walker.cur_spte;
+		level = walker.cur_level;
+
+		dump_walker(&walker);
+
+		if (!__spte_present(spte))
+			continue;
+
+		if (!__spte_last_level(spte, level))
+			continue;
+
+		*walker.cur_sptep = AKVM_NULL_SPTE;
+		akvm_free_data_page(mmu, __spte_to_pa(spte), level);
+		flush = 1;
+	}
+unlock:
+	write_unlock(&mmu->lock);
+
+	if (!flush)
+		return;
+
+	akvm_vm_for_each_vcpu(mmu->vm, i, vcpu)
+		akvm_vcpu_set_request(vcpu, AKVM_VCPU_REQUEST_FLUSH_TLB, true);
 }
