@@ -336,23 +336,28 @@ static int akvm_mmu_install_data_page(struct mmu_context *mmu,
 				      struct akvm_mmu_walker *walker)
 {
 	int r;
+	int srcu_index;
 	spte new_spte;
 	unsigned long hva;
 	struct page *page;
 	struct vm_memory_slot *slot;
+
+	srcu_index = srcu_read_lock(&mmu->vm->srcu);
 
 	r =  akvm_vm_gpa_to_memory_slot(mmu->vm,
 					walker->cur_gpa,
 					walker->cur_gpa + PAGE_SIZE,
 					&slot);
 	if (r)
-		return r;
+		goto release_srcu;
 
 	hva = slot->hva + walker->target_gpa - slot->gpa;
 	r = akvm_mmu_hva_to_page(hva, &page);
-	if (r)
-		return r;
-
+	if (r) {
+		pr_info("%s: hva_to_page: hva:0x%lx slot->gpa:0x%lx target_gpa:0x%lx cur_gpa:0x%lx r:%d\n",
+			__func__, hva, slot->gpa, walker->target_gpa, walker->cur_gpa, r);
+		goto release_srcu;
+	}
 	new_spte = spte_init(__pa(page_address(page)), AKVM_SPTE_PERM, true);
 	*walker->cur_sptep = new_spte;
 	++mmu->data_page_count;
@@ -360,10 +365,11 @@ static int akvm_mmu_install_data_page(struct mmu_context *mmu,
 	/* pin the page now until MM notifier is handled */
 	/*  akvm_mmu_put_page(page) */
 
-	/* pin the page */
-	// akvm_mmu_put_page(page);
+release_srcu:
+	srcu_read_unlock(&mmu->vm->srcu, srcu_index);
 
 	return r;
+
 }
 
 static void dump_walker(struct akvm_mmu_walker *walker)
