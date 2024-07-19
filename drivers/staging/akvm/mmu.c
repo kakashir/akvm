@@ -396,8 +396,8 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 		     (1ULL << (12 + 9 + 9 + 9)));
 	gpa end = start + 1024 * PAGE_SIZE;
 #else
-	gpa start = fault_addr;
-	gpa end = fault_addr + PAGE_SIZE;
+	gpa start = fault_addr & AKVM_GPA_MASK(AKVM_PAGE_LEVEL_1);
+	gpa end = start + 1;
 #endif
 	write_lock(&mmu->lock);
 
@@ -414,6 +414,9 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 		dump_walker(&walker);
 
 		if (walker.cur_level == AKVM_PAGE_LEVEL_1) {
+			if (__spte_present(walker.cur_spte))
+				break;
+
 			r = akvm_mmu_install_data_page(mmu, &walker);
 			if (r)
 				break;
