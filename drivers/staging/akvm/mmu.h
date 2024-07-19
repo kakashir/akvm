@@ -10,6 +10,7 @@
 
 struct vcpu_context;
 struct vm_context;
+struct vm_memory_slot;
 
 struct mmu_context {
 	struct vm_context *vm;
@@ -29,4 +30,6 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu, struct mmu_context* mm
 unsigned long akvm_mmu_root_page(struct mmu_context *mmu,
 				 struct vmx_capability *cap);
 
+void akvm_mmu_zap_memory_slot(struct mmu_context *mmu,
+			      struct vm_memory_slot *slot);
 #endif

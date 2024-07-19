@@ -5,8 +5,6 @@
 #include <linux/percpu.h>
 #include <linux/anon_inodes.h>
 
-#include <uapi/linux/akvm.h>
-
 #include <asm/msr-index.h>
 #include <asm/cpu_entry_area.h>
 #include <asm/idtentry.h>

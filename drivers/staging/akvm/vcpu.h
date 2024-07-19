@@ -4,6 +4,7 @@
 #include <linux/types.h>
 #include <linux/preempt.h>
 #include <linux/mm.h>
+#include <uapi/linux/akvm.h>
 
 #include "common.h"
 #include "vmx.h"
