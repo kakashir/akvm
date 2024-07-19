@@ -325,9 +325,11 @@ static inline void akvm_mmu_put_page(struct page *page)
 	unpin_user_page(page);
 }
 
-static void akvm_free_data_page(unsigned long pa, enum akvm_page_level level)
+static void akvm_free_data_page(struct mmu_context *mmu,
+				unsigned long pa, enum akvm_page_level level)
 {
 	akvm_mmu_put_page(pfn_to_page(pa >> PAGE_SHIFT));
+	--mmu->data_page_count;
 }
 
 static int akvm_mmu_install_data_page(struct mmu_context *mmu,
@@ -353,6 +355,10 @@ static int akvm_mmu_install_data_page(struct mmu_context *mmu,
 
 	new_spte = spte_init(__pa(page_address(page)), AKVM_SPTE_PERM, true);
 	*walker->cur_sptep = new_spte;
+	++mmu->data_page_count;
+
+	/* pin the page now until MM notifier is handled */
+	/*  akvm_mmu_put_page(page) */
 
 	/* pin the page */
 	// akvm_mmu_put_page(page);
@@ -422,10 +428,12 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 	}
 
 	write_unlock(&mmu->lock);
+
 	return r;
 }
 
-static void __akvm_free_mmu_page_table(void *root, enum akvm_page_level level,
+static void __akvm_free_mmu_page_table(struct mmu_context *mmu,
+				       void *root, enum akvm_page_level level,
 				       gpa start, gpa end)
 {
 	struct akvm_mmu_walker walker;
@@ -448,7 +456,7 @@ static void __akvm_free_mmu_page_table(void *root, enum akvm_page_level level,
 			continue;
 
 		if (__spte_last_level(spte, level)) {
-			akvm_free_data_page(__spte_to_pa(spte), level);
+			akvm_free_data_page(mmu, __spte_to_pa(spte), level);
 			*walker.cur_sptep = AKVM_NULL_SPTE;
 			continue;
 		}
@@ -461,7 +469,7 @@ static void __akvm_free_mmu_page_table(void *root, enum akvm_page_level level,
 		sub_end = min(sub_start +
 			      (1UL << AKVM_GPA_SHIFT(level)), end);
 
-		__akvm_free_mmu_page_table(sub_root, sub_level,
+		__akvm_free_mmu_page_table(mmu, sub_root, sub_level,
 					   sub_start, sub_end);
 		akvm_mmu_destroy_mmu_page(__spte_to_sub_mmu_page(spte));
 		*walker.cur_sptep = AKVM_NULL_SPTE;
@@ -478,7 +486,7 @@ static void akvm_free_mmu_page_table(struct mmu_context *mmu,
 
 	write_lock(&mmu->lock);
 
-	__akvm_free_mmu_page_table(root, mmu->level, start, end);
+	__akvm_free_mmu_page_table(mmu, root, mmu->level, start, end);
 
 	write_unlock(&mmu->lock);
 }
@@ -496,7 +504,7 @@ int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level)
 	mmu->level = level;
 	INIT_LIST_HEAD(&mmu->page_list);
 	rwlock_init(&mmu->lock);
-
+	mmu->data_page_count=0;
 	return 0;
 }
 
@@ -505,7 +513,9 @@ void akvm_deinit_mmu(struct mmu_context *mmu)
 	akvm_free_mmu_page_table(mmu, AKVM_MIN_GPA_ADDR, AKVM_MAX_GPA_ADDR);
 
 	WARN_ON(!list_empty(&mmu->page_list));
+	WARN_ON(mmu->data_page_count);
 	free_page(mmu->root);
+
 }
 
 unsigned long akvm_mmu_root_page(struct mmu_context *mmu,
