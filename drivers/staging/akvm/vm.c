@@ -333,6 +333,55 @@ static int akvm_vm_ioctl_remove_memory_slot(struct vm_context *vm,
 	return r;
 }
 
+static int akvm_vm_ioctl_replace_memory_slot(struct vm_context *vm,
+					     struct akvm_memory_slot __user *u_slot)
+{
+	int r;
+	struct vm_memory_slot slot;
+	struct vm_memory_slot removed_slot;
+	struct vm_memory_space *ms;
+
+	r = akvm_vm_init_memory_slot(&slot, u_slot);
+	if (r)
+		return r;
+	r = akvm_vm_sanity_check_memory_slot(&slot);
+	if (r)
+		return r;
+
+	mutex_lock(&vm->lock);
+
+	ms = srcu_dereference_check(vm->memory, &vm->srcu,
+				    lockdep_is_held(&vm->lock));
+
+	if (!ms) {
+		mutex_unlock(&vm->lock);
+		return -EINVAL;
+	}
+
+	if (akvm_vm_check_memory_slot_overlap(ms, &slot, true))
+		r = akvm_vm_update_memory_space(vm, &slot, &removed_slot,
+						MEMORY_SLOT_REPLACE);
+	else
+		r = -EINVAL;
+
+	mutex_unlock(&vm->lock);
+
+	if (!r) {
+		struct akvm_memory_slot r_slot;
+
+		akvm_mmu_zap_memory_slot(&vm->mmu, &removed_slot);
+
+		r_slot.hva = removed_slot.hva;
+		r_slot.gpa = removed_slot.gpa;
+		r_slot.size = removed_slot.size;
+		r_slot.flags = removed_slot.flags;
+		if (copy_to_user(u_slot, &r_slot, sizeof(r_slot)))
+			r = -EFAULT;
+	}
+
+	return r;
+}
+
 static int akvm_vm_open(struct inode *inode, struct file *file)
 {
 	pr_info("%s\n", __func__);
@@ -383,6 +432,8 @@ static long akvm_vm_ioctl(struct file *f, unsigned int ioctl,
 		return akvm_vm_ioctl_add_memory_slot(vm, (void*)param);
 	case AKVM_MEMORY_SLOT_REMOVE:
 		return akvm_vm_ioctl_remove_memory_slot(vm, (void*)param);
+	case AKVM_MEMORY_SLOT_REPLACE:
+		return akvm_vm_ioctl_replace_memory_slot(vm, (void*)param);
 	default:
 		return -EINVAL;
 	}
