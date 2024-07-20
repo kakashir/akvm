@@ -42,6 +42,13 @@ struct akvm_memory_slot {
 };
 #define AKVM_MEMORY_SLOT_ADD _IOR(AKVMIO, 0x4, struct akvm_memory_slot)
 #define AKVM_MEMORY_SLOT_REMOVE _IOR(AKVMIO, 0x5, struct akvm_memory_slot)
+
+/*
+ * replaced slot infomration returns in struct akvm_memory_slot
+ * when the ioctl be successful
+ */
+#define AKVM_MEMORY_SLOT_REPLACE _IOWR(AKVMIO, 0x6, struct akvm_memory_slot)
+
 /* hva/gpa/size need align on this value */
 #define AKVM_MEMORY_SLOT_ALIGN 4096
 
