@@ -15,7 +15,7 @@ struct vm_memory_slot;
 struct mmu_context {
 	struct vm_context *vm;
 
-	rwlock_t lock;
+	struct mutex lock;
 	struct list_head page_list;
 	unsigned long root;
 	int level;

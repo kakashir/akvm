@@ -406,7 +406,7 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 	gpa start = fault_addr & AKVM_GPA_MASK(AKVM_PAGE_LEVEL_1);
 	gpa end = start + 1;
 #endif
-	write_lock(&mmu->lock);
+	mutex_lock(&mmu->lock);
 
 	root = (void*)mmu->root;
 	akvm_mmu_for_each(&walker, root, max_level, min_level, start, end) {
@@ -438,7 +438,7 @@ int akvm_handle_mmu_page_fault(struct vcpu_context *vcpu,
 		}
 	}
 
-	write_unlock(&mmu->lock);
+	mutex_unlock(&mmu->lock);
 
 	return r;
 }
@@ -492,13 +492,13 @@ static void akvm_free_mmu_page_table(struct mmu_context *mmu,
 {
 	void *root;
 
-	write_lock(&mmu->lock);
+	mutex_lock(&mmu->lock);
 
 	root = (void*)mmu->root;
 	if (root)
 		__akvm_free_mmu_page_table(mmu, root, mmu->level, start, end);
 
-	write_unlock(&mmu->lock);
+	mutex_unlock(&mmu->lock);
 }
 
 int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level)
@@ -513,7 +513,7 @@ int akvm_init_mmu(struct mmu_context *mmu, struct vm_context *vm, int level)
 	mmu->vm = vm;
 	mmu->level = level;
 	INIT_LIST_HEAD(&mmu->page_list);
-	rwlock_init(&mmu->lock);
+	mutex_init(&mmu->lock);
 	mmu->data_page_count=0;
 	return 0;
 }
@@ -558,7 +558,7 @@ void akvm_mmu_zap_memory_slot(struct mmu_context *mmu,
 	spte spte;
 	int flush = 0;
 
-	write_lock(&mmu->lock);
+	mutex_lock(&mmu->lock);
 
 	root = (void*)mmu->root;
 	if (!root)
@@ -582,7 +582,7 @@ void akvm_mmu_zap_memory_slot(struct mmu_context *mmu,
 		flush = 1;
 	}
 unlock:
-	write_unlock(&mmu->lock);
+	mutex_unlock(&mmu->lock);
 
 	if (!flush)
 		return;
