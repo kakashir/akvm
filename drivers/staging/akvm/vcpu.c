@@ -815,7 +815,8 @@ asmlinkage unsigned long
 __akvm_vcpu_run(struct vm_host_state *hs, struct reg_context *gs,
 		int launched);
 
-static int vm_enter_exit(struct vcpu_context *vcpu)
+static int vm_enter_exit(struct vcpu_context *vcpu,
+			 union vmx_exit_reason *reason)
 {
 	unsigned long r;
 
@@ -834,28 +835,31 @@ static int vm_enter_exit(struct vcpu_context *vcpu)
 	vcpu->exit_info_available_mask = 0;
 
 	if (!r) {
-		union vmx_exit_reason reason;
-
-		reason.val = akvm_vcpu_exit_info(vcpu, EXIT_REASON);
-		if (!reason.failed)
+		reason->val = akvm_vcpu_exit_info(vcpu, EXIT_REASON);
+		if (!reason->failed) {
 			vcpu->vmcs.launched = true;
-		return r;
+			return r;
+		}
 	}
 
-	switch(r) {
+	switch (r) {
+	case 0:
+		pr_err("Vmentry failure: reason :0x%x\n", reason->val);
+		break;
 	case 1:
-		pr_err("failed vmentry: instruction error:0x%lx\n",
+		pr_err("Vmentry valid failure: instruction error:0x%lx\n",
 		       vmcs_read_32(VMX_INSTRUCTION_ERROR));
 		break;
 	case 2:
-		pr_err("failedInvalid vmentry:\n");
+		pr_err("Vmentry invalid failure\n");
 		break;
 	default:
-		pr_err("failed unknown\n");
+		pr_err("Vmentry unknown failure\n");
 		break;
 	}
 
-	return r;
+	/* follow the rule: return < 0 for failed case */
+	return -EIO;
 }
 
 static int akvm_handle_vcpu_request_flush_tlb(struct vcpu_context *vcpu)
@@ -1006,15 +1010,14 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 		save_host_state(&vcpu->host_state);
 		load_guest_state(vcpu, &vcpu->guest_state);
 
-		r = vm_enter_exit(vcpu);
+		r = vm_enter_exit(vcpu, &exit_reason);
 
 		save_guest_state(vcpu);
 		load_host_state(&vcpu->host_state);
 
 		set_run_state_leave_guest(vcpu);
 
-		exit_reason.val = akvm_vcpu_exit_info(vcpu, EXIT_REASON);
-		if (!r && !exit_reason.failed)
+		if (!r)
 			r = handle_vm_exit_irqoff(vcpu, exit_reason);
 irq_enable:
 		local_irq_restore(flags);
@@ -1024,14 +1027,8 @@ irq_enable:
 
 		akvm_vcpu_event_injection_done(vcpu);
 
-		if (!r && !exit_reason.failed)
+		if (!r)
 			r = handle_vm_exit(vcpu, exit_reason);
-
-		if (exit_reason.failed) {
-			pr_info("%s: vmentry failed: 0x%x\n",
-				__func__, exit_reason.val);
-			r = -EFAULT;
-		}
 		if (r < 0)
 			dump_vmcs(vcpu);
 	}
