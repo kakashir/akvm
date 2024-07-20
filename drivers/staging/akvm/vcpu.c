@@ -999,8 +999,10 @@ static int akvm_ioctl_run(struct vcpu_context *vcpu, unsigned long param)
 		  out of this run loop for i.e. event handling.
 		*/
 		if (!set_run_state_enter_guest(vcpu)) {
-			r = -EFAULT;
-			goto irq_enable;
+			set_run_state_in_host(vcpu);
+			local_irq_restore(flags);
+			preempt_enable();
+			continue;
 		}
 
 		r = akvm_vcpu_handle_requests_irqoff(vcpu);
