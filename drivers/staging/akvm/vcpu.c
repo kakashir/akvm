@@ -1031,7 +1031,7 @@ irq_enable:
 
 		if (!r)
 			r = handle_vm_exit(vcpu, exit_reason);
-		if (r < 0)
+		if (r < 0 && r != -EINTR)
 			dump_vmcs(vcpu);
 	}
  exit:
