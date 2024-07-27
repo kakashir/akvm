@@ -94,6 +94,7 @@ struct vm_vmcs {
 #define AKVM_VCPU_REQUEST_FLUSH_TLB 0
 #define AKVM_VCPU_REQUEST_VM_SERVICE_COMPLETE 1
 #define AKVM_VCPU_REQUEST_EVENT 2
+#define AKVM_VCPU_REQUEST_RELOAD_APIC_ACCESS_ADDR 3
 
 enum exit_info_id {
 	EXIT_REASON,
@@ -162,6 +163,8 @@ struct vcpu_context {
 
 	struct akvm_vcpu_runtime  *runtime;
 	struct akvm_cpuid cpuid;
+
+	struct page *vapic_access_page;
 };
 
 int akvm_create_vcpu(struct file *vm_file,

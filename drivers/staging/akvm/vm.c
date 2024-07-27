@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/percpu.h>
 #include <linux/anon_inodes.h>
+#include <linux/mman.h>
 
 #include <uapi/linux/akvm.h>
 
@@ -466,6 +467,29 @@ static struct file_operations akvm_vm_ops = {
 	.owner = THIS_MODULE,
 };
 
+/* internal slots are freed by akvm_vm_destroy_memory_space yet */
+static int akvm_init_internal_memory_slot(struct vm_context *vm)
+{
+	int r;
+	unsigned long hva;
+	struct vm_memory_slot new;
+
+	hva = vm_mmap(NULL, 0, X86_LAPIC_MMIO_SIZE, PROT_READ | PROT_WRITE,
+		      MAP_SHARED | MAP_ANONYMOUS, 0);
+	if (IS_ERR_VALUE(hva))
+		return -ENOMEM;
+
+	new.gpa = X86_LAPIC_DEFAULT_ADDR;
+	new.size = X86_LAPIC_MMIO_SIZE;
+	new.hva = hva;
+	new.flags = 0;
+	r = akvm_vm_add_memory_slot(vm, &new);
+	if (r)
+		vm_munmap(new.hva, new.size);
+
+	return r;
+}
+
 static int akvm_init_vm(struct vm_context *vm)
 {
 	int r;
@@ -473,6 +497,12 @@ static int akvm_init_vm(struct vm_context *vm)
 	r = akvm_init_mmu(&vm->mmu, vm, vmx_ept_level(&vmx_capability));
 	if (r)
 		return r;
+
+	r = akvm_init_internal_memory_slot(vm);
+	if (r) {
+		akvm_deinit_mmu(&vm->mmu);
+		return r;
+	}
 
 	ida_init(&vm->vcpu_index_pool);
 	mutex_init(&vm->lock);

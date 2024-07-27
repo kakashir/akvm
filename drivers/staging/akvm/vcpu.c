@@ -34,7 +34,8 @@
 	 VMX_PROCBASE_MSR_BITMAP)
 
 #define VMX_PROCBASE_2ND_CTL_MIN		\
-	(VMX_PROCBASE_2ND_ENABLE_EPT |		\
+	(VMX_PROCBASE_2ND_VAPIC_ACCESS |	\
+	 VMX_PROCBASE_2ND_ENABLE_EPT |		\
 	 VMX_PROCBASE_2ND_UNRESTRICT_GUEST |	\
 	 VMX_PROCBASE_2ND_VPID)
 
@@ -906,6 +907,25 @@ static int handle_request_event(struct vcpu_context *vcpu)
 	return 0;
 }
 
+static int handle_request_reload_apic_access_addr(struct vcpu_context *vcpu)
+{
+	int r;
+
+	/*
+	  Now the memory in slots are pinned so this should only happne once
+	  to get the pfn from 0 -> xxx.
+	 */
+	WARN_ON(vcpu->vapic_access_page);
+
+	r = akvm_mmu_gpa_to_page(&vcpu->vm->mmu, X86_LAPIC_DEFAULT_ADDR,
+				 &vcpu->vapic_access_page);
+	if (!r)
+		vmcs_write_64(VMX_VAPIC_ACCESS_ADDR,
+			      page_to_pfn(vcpu->vapic_access_page) << PAGE_SHIFT);
+
+	return r;
+}
+
 static int akvm_vcpu_handle_requests(struct vcpu_context *vcpu)
 {
 	int r = 0;
@@ -916,6 +936,9 @@ static int akvm_vcpu_handle_requests(struct vcpu_context *vcpu)
 
 	if (test_and_clear_bit(AKVM_VCPU_REQUEST_EVENT, &vcpu->requests))
 		r = handle_request_event(vcpu);
+
+	if (test_and_clear_bit(AKVM_VCPU_REQUEST_RELOAD_APIC_ACCESS_ADDR, &vcpu->requests))
+		r = handle_request_reload_apic_access_addr(vcpu);
 
 	return r;
 }
@@ -1088,6 +1111,9 @@ static void akvm_deinit_vcpu(struct vcpu_context *vcpu)
 	free_page((unsigned long)vcpu->runtime);
 	free_vpid(vcpu);
 	kfree(vcpu->cpuid.entry);
+
+	if (vcpu->vapic_access_page)
+	    akvm_mmu_put_page(vcpu->vapic_access_page);
 }
 
 static int akvm_vcpu_open(struct inode *inode, struct file *file)
@@ -1240,6 +1266,9 @@ static int akvm_init_vcpu(struct vcpu_context *vcpu)
 
 	mutex_init(&vcpu->ioctl_lock);
 	vcpu->runtime = runtime;
+
+	akvm_vcpu_set_request(vcpu,
+			      AKVM_VCPU_REQUEST_RELOAD_APIC_ACCESS_ADDR, false);
 	return r;
 
 failed_put:

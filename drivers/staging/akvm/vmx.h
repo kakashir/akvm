@@ -204,6 +204,8 @@ enum vmcs_filed_id {
 	VMX_EXIT_VECTORING_INFO = 0x4408,
 	VMX_EXIT_VECTORING_ERROR_CODE = 0x440a,
 	VMX_VPID = 0x0,
+	VMX_VAPIC_ACCESS_ADDR = 0x2014,
+	VMX_VAPIC_ACCESS_ADDR_HIGH = 0x2015,
 
 	/* host 16bit state area */
 	VMX_HOST_ES = 0xc00,
@@ -416,6 +418,7 @@ int invept(unsigned long ept_root, struct vmx_capability *vmx_cap);
 #define VMX_PROCBASE_MSR_BITMAP BIT(28)
 #define VMX_PROCBASE_ACTIVE_2ND_CONTROL BIT(31)
 
+#define VMX_PROCBASE_2ND_VAPIC_ACCESS BIT(0)
 #define VMX_PROCBASE_2ND_ENABLE_EPT BIT(1)
 #define VMX_PROCBASE_2ND_UNRESTRICT_GUEST BIT(7)
 #define VMX_PROCBASE_2ND_VPID BIT(5)

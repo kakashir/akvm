@@ -276,4 +276,7 @@ static inline void raw_cpuid(int leaf, int sub_leaf,
 		     : "memory");
 }
 
+#define X86_LAPIC_DEFAULT_ADDR 0xfee00000
+#define X86_LAPIC_MMIO_SIZE 4096
+
 #endif
