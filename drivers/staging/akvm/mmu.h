@@ -32,4 +32,10 @@ unsigned long akvm_mmu_root_page(struct mmu_context *mmu,
 
 void akvm_mmu_zap_memory_slot(struct mmu_context *mmu,
 			      struct vm_memory_slot *slot);
+int akvm_mmu_gpa_to_page(struct mmu_context *mmu, gpa addr,
+			 struct page **page);
+
+/* put page from akvm_mmu_gpa_to_page() */
+void akvm_mmu_put_page(struct page *page);
+
 #endif
