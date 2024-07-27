@@ -56,3 +56,6 @@ int akvm_vm_gpa_to_memory_slot(struct vm_context *vm,
 #define akvm_vm_for_each_vcpu(vm, i, vcpu) \
 	xa_for_each(&vm->vcpus, i, vcpu)
 #endif
+
+int akvm_vm_add_memory_slot(struct vm_context *vm,
+			    struct vm_memory_slot *slot);

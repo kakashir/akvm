@@ -248,24 +248,19 @@ static int akvm_vm_sanity_check_memory_slot(struct vm_memory_slot *slot)
 	return 0;
 }
 
-static int akvm_vm_ioctl_add_memory_slot(struct vm_context *vm,
-					 struct akvm_memory_slot __user *u_slot)
+static int __vm_add_memory_slot(struct vm_context *vm,
+				struct vm_memory_slot *slot)
 {
 	int r;
-	struct vm_memory_slot slot;
 	struct vm_memory_space *ms;
 
-	r = akvm_vm_init_memory_slot(&slot, u_slot);
-	if (r)
-		return r;
-
-	if (!slot.hva)
+	if (!slot->hva)
 		return -EINVAL;
 
-	if (!IS_ALIGNED(slot.hva, AKVM_MEMORY_SLOT_ALIGN))
+	if (!IS_ALIGNED(slot->hva, AKVM_MEMORY_SLOT_ALIGN))
 		return -EINVAL;
 
-	r = akvm_vm_sanity_check_memory_slot(&slot);
+	r = akvm_vm_sanity_check_memory_slot(slot);
 	if (r)
 		return r;
 
@@ -280,19 +275,38 @@ static int akvm_vm_ioctl_add_memory_slot(struct vm_context *vm,
 		/* fisrt slot, just insert */
 		r = akvm_vm_create_memory_space(&new);
 		if (!r) {
-			r = akvm_vm_insert_memory_slot(new, &slot);
+			r = akvm_vm_insert_memory_slot(new, slot);
 			if (!r)
 				rcu_assign_pointer(vm->memory, new);
 		}
 	} else {
 		r = -EINVAL;
-		if (!akvm_vm_check_memory_slot_overlap(ms, &slot, false))
-			r = akvm_vm_update_memory_space(vm, &slot, NULL,
+		if (!akvm_vm_check_memory_slot_overlap(ms, slot, false))
+			r = akvm_vm_update_memory_space(vm, slot, NULL,
 							MEMORY_SLOT_ADD);
 	}
 
 	mutex_unlock(&vm->lock);
 	return r;
+}
+
+static int akvm_vm_ioctl_add_memory_slot(struct vm_context *vm,
+					 struct akvm_memory_slot __user *u_slot)
+{
+	int r;
+	struct vm_memory_slot slot;
+
+	r = akvm_vm_init_memory_slot(&slot, u_slot);
+	if (r)
+		return r;
+
+	return __vm_add_memory_slot(vm, &slot);
+}
+
+int akvm_vm_add_memory_slot(struct vm_context *vm,
+			    struct vm_memory_slot *slot)
+{
+	return __vm_add_memory_slot(vm, slot);
 }
 
 static int akvm_vm_ioctl_remove_memory_slot(struct vm_context *vm,
