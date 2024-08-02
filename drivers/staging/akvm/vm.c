@@ -421,13 +421,16 @@ static int akvm_vm_release(struct inode *inode, struct file *file)
 static int akvm_vm_ioctl_create_vcpu(struct file *f)
 {
 	int r;
+	int index;
 	struct vm_context *vm = f->private_data;
 
-	r = akvm_vm_alloc_vcpu_index(vm);
-	if (r < 0)
-		return r;
+	index = akvm_vm_alloc_vcpu_index(vm);
+	if (index < 0)
+		return index;
 
-	r = akvm_create_vcpu(f, vm, r);
+	r = akvm_create_vcpu(f, vm, index);
+	if (r < 0)
+		akvm_vm_free_vcpu_index(vm, index);
 	return r;
 }
 
