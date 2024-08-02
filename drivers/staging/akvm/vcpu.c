@@ -1462,6 +1462,9 @@ unsigned long akvm_vcpu_exit_info(struct vcpu_context *vcpu,
 	case EXIT_VECTOR_ERROR_CODE:
 		val = vmcs_read_32(VMX_EXIT_VECTORING_ERROR_CODE);
 		break;
+	case EXIT_INFO_QUAL:
+		val = vmcs_read_natural(VMX_EXIT_QUALIFICATION);
+		break;
 	default:
 		WARN_ON(1);
 		return -EINVAL;

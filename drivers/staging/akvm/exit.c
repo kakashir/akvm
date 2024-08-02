@@ -51,8 +51,9 @@ static int handle_excep_nmi_irqoff(struct vcpu_context *vcpu)
 
 static int default_handler(struct vcpu_context *vcpu)
 {
-	pr_err("unimplemented vm exit reason:%ld\n",
-	       akvm_vcpu_exit_info(vcpu, EXIT_REASON));
+	pr_err("unimplemented vm exit reason:%ld qualification:0x%lx\n",
+	       akvm_vcpu_exit_info(vcpu, EXIT_REASON),
+	       akvm_vcpu_exit_info(vcpu, EXIT_INFO_QUAL));
 	return -ENOTSUPP;
 }
 
@@ -341,7 +342,7 @@ static int handle_cr(struct vcpu_context *vcpu)
 	unsigned long val;
 	unsigned long reg;
 
-	qual = vmcs_read_natural(VMX_EXIT_QUALIFICATION);
+	qual = akvm_vcpu_exit_info(vcpu, EXIT_INFO_QUAL);
 	cr = qual & GENMASK_ULL(3, 0);
 	type = (qual & GENMASK_ULL(5, 4)) >> 4;
 	reg = (qual & GENMASK_ULL(11, 8)) >> 8;
