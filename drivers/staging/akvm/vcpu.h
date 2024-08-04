@@ -10,6 +10,7 @@
 #include "vmx.h"
 #include "vm.h"
 #include "x86.h"
+#include "lapic.h"
 
 enum vcpu_run_state {
 	VCPU_IN_HOST,
@@ -165,6 +166,7 @@ struct vcpu_context {
 	struct akvm_cpuid cpuid;
 
 	struct page *vapic_access_page;
+	struct akvm_lapic lapic;
 };
 
 int akvm_create_vcpu(struct file *vm_file,

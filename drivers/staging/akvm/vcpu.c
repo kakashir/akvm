@@ -1116,6 +1116,16 @@ static void akvm_deinit_vcpu(struct vcpu_context *vcpu)
 	    akvm_mmu_put_page(vcpu->vapic_access_page);
 }
 
+static int akvm_vcpu_create_lapic(struct vcpu_context *vcpu)
+{
+	return akvm_create_lapic(&vcpu->lapic, vcpu);
+}
+
+static void akvm_vcpu_destroy_lapic(struct vcpu_context *vcpu)
+{
+	akvm_destroy_lapic(&vcpu->lapic);
+}
+
 static int akvm_vcpu_open(struct inode *inode, struct file *file)
 {
 	pr_info("%s\n", __func__);
@@ -1130,6 +1140,7 @@ static int akvm_vcpu_release(struct inode *inode, struct file *file)
 
 	pr_info("%s\n", __func__);
 
+	akvm_vcpu_destroy_lapic(vcpu);
 	akvm_deinit_vcpu(vcpu);
 
 	if (vcpu_destroy_cb)
@@ -1234,7 +1245,7 @@ static struct file_operations akvm_vcpu_ops = {
 	.owner = THIS_MODULE,
 };
 
-static int akvm_init_vcpu(struct vcpu_context *vcpu)
+static int akvm_init_vcpu(struct vcpu_context *vcpu, int vcpu_index)
 {
 	int r;
 	struct akvm_vcpu_runtime *runtime;
@@ -1266,6 +1277,7 @@ static int akvm_init_vcpu(struct vcpu_context *vcpu)
 
 	mutex_init(&vcpu->ioctl_lock);
 	vcpu->runtime = runtime;
+	vcpu->index = vcpu_index;
 
 	akvm_vcpu_set_request(vcpu,
 			      AKVM_VCPU_REQUEST_RELOAD_APIC_ACCESS_ADDR, false);
@@ -1296,13 +1308,17 @@ int akvm_create_vcpu(struct file *vm_file,
 	if (!vcpu)
 		return -ENOMEM;
 
-	r = akvm_init_vcpu(vcpu);
+	r = akvm_init_vcpu(vcpu, vcpu_index);
 	if (r)
 		goto failed_free;
 
+	r = akvm_vcpu_create_lapic(vcpu);
+	if (r)
+		goto failed_deinit_vcpu;
+
 	r = get_unused_fd_flags(O_CLOEXEC);
 	if (r < 0)
-		goto failed_deinit_vcpu;
+		goto failed_destroy_lapic;
 
 	file = anon_inode_getfile("akvm-vcpu", &akvm_vcpu_ops, vcpu, O_RDWR);
 	if (IS_ERR(file)) {
@@ -1319,7 +1335,6 @@ int akvm_create_vcpu(struct file *vm_file,
 
 	if (vm_file)
 		vcpu->vm_file = get_file(vm_file);
-	vcpu->index = vcpu_index;
 	vcpu->vm = vm;
 
 	fd_install(fd, file);
@@ -1330,6 +1345,8 @@ failed_fput:
 	fput(file);
 failed_fdput:
 	put_unused_fd(fd);
+failed_destroy_lapic:
+	akvm_vcpu_destroy_lapic(vcpu);
 failed_deinit_vcpu:
 	akvm_deinit_vcpu(vcpu);
 failed_free:
