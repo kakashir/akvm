@@ -31,12 +31,15 @@
 #define VMX_PROCBASE_CTL_MIN			\
 	(VMX_PROCBASE_ACTIVE_2ND_CONTROL |	\
 	 VMX_PROCBASE_UNCOND_IO_EXIT |		\
-	 VMX_PROCBASE_MSR_BITMAP)
+	 VMX_PROCBASE_MSR_BITMAP |		\
+	 VMX_PROCBASE_TPR_SHADOW)
 
-#define VMX_PROCBASE_2ND_CTL_MIN		\
-	(VMX_PROCBASE_2ND_VAPIC_ACCESS |	\
-	 VMX_PROCBASE_2ND_ENABLE_EPT |		\
-	 VMX_PROCBASE_2ND_UNRESTRICT_GUEST |	\
+
+#define VMX_PROCBASE_2ND_CTL_MIN			\
+	(VMX_PROCBASE_2ND_VAPIC_ACCESS |		\
+	 VMX_PROCBASE_2ND_APIC_REG_VIRT |		\
+	 VMX_PROCBASE_2ND_ENABLE_EPT |			\
+	 VMX_PROCBASE_2ND_UNRESTRICT_GUEST |		\
 	 VMX_PROCBASE_2ND_VPID)
 
 #define VMX_ENTRY_CTL_MIN			\
@@ -1118,7 +1121,18 @@ static void akvm_deinit_vcpu(struct vcpu_context *vcpu)
 
 static int akvm_vcpu_create_lapic(struct vcpu_context *vcpu)
 {
-	return akvm_create_lapic(&vcpu->lapic, vcpu);
+	int r;
+
+	r = akvm_create_lapic(&vcpu->lapic, vcpu);
+	if (r)
+		return r;
+
+	vcpu_load(vcpu);
+	vmcs_write_64(VMX_VAPIC_REG_ADDR, __pa(vcpu->lapic.apic_reg));
+	vmcs_write_32(VMX_TPR_THRESHOLD, 0x0);
+	vcpu_put(vcpu, false);
+
+	return r;
 }
 
 static void akvm_vcpu_destroy_lapic(struct vcpu_context *vcpu)
