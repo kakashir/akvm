@@ -5327,6 +5327,13 @@ static bool rtl_aspm_is_safe(struct rtl8169_private *tp)
 	return false;
 }
 
+static int rtl_aspm_disable_state(struct rtl8169_private *tp)
+{
+	if (tp->mac_version == RTL_GIGA_MAC_VER_46)
+		return PCIE_LINK_STATE_L1 | PCIE_LINK_STATE_L0S;
+	return PCIE_LINK_STATE_L1;
+}
+
 static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct rtl8169_private *tp;
@@ -5397,7 +5404,8 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rtl_aspm_is_safe(tp))
 		rc = 0;
 	else
-		rc = pci_disable_link_state(pdev, PCIE_LINK_STATE_L1);
+		rc = pci_disable_link_state(pdev,
+					    rtl_aspm_disable_state(tp));
 	tp->aspm_manageable = !rc;
 
 	tp->dash_type = rtl_get_dash_type(tp);
