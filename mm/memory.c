@@ -3691,17 +3691,26 @@ static inline void unmap_mapping_range_tree(struct rb_root_cached *root,
 {
 	struct vm_area_struct *vma;
 	pgoff_t vba, vea, zba, zea;
+	bool pfnmap_pat;
 
 	vma_interval_tree_foreach(vma, root, first_index, last_index) {
 		vba = vma->vm_pgoff;
 		vea = vba + vma_pages(vma) - 1;
 		zba = max(first_index, vba);
 		zea = min(last_index, vea);
+		pfnmap_pat = (vma->vm_flags & (VM_PFNMAP | VM_PAT))
+			== (VM_PFNMAP | VM_PAT);
+
+		if (pfnmap_pat)
+			mmap_read_lock(vma->vm_mm);
 
 		unmap_mapping_range_vma(vma,
 			((zba - vba) << PAGE_SHIFT) + vma->vm_start,
 			((zea - vba + 1) << PAGE_SHIFT) + vma->vm_start,
 				details);
+
+		if (pfnmap_pat)
+			mmap_read_unlock(vma->vm_mm);
 	}
 }
 
