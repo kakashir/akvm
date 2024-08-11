@@ -426,6 +426,7 @@ int invept(unsigned long ept_root, struct vmx_capability *vmx_cap);
 #define VMX_PROCBASE_2ND_ENABLE_EPT BIT(1)
 #define VMX_PROCBASE_2ND_UNRESTRICT_GUEST BIT(7)
 #define VMX_PROCBASE_2ND_APIC_REG_VIRT BIT(8)
+#define VMX_PROCBASE_2ND_VIRT_INTR_DELIVERY BIT(9)
 #define VMX_PROCBASE_2ND_VPID BIT(5)
 
 #define VMX_ENTRY_LOAD_DR_DEBUGCTL BIT(2)

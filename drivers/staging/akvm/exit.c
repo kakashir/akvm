@@ -158,6 +158,17 @@ static int handle_wrmsr_efer(struct vcpu_context *vcpu,
 	return akvm_vcpu_skip_instruction(vcpu);
 }
 
+static void test_msr_12345678(struct vcpu_context *vcpu, unsigned int val)
+{
+	unsigned short int i;
+
+	i = vmcs_read_16(VMX_GUEST_INTR_STATUS);
+	vmcs_write_16(VMX_GUEST_INTR_STATUS, ((i & 0xff00) | val));
+	pr_info("%s: guest intr state: 0x%x 0x%x\n", __func__,
+		i, (unsigned int)vmcs_read_16(VMX_GUEST_INTR_STATUS));
+	akvm_vcpu_skip_instruction(vcpu);
+}
+
 static int handle_wrmsr(struct vcpu_context *vcpu)
 {
 	unsigned long index;
@@ -170,6 +181,9 @@ static int handle_wrmsr(struct vcpu_context *vcpu)
 	switch(index) {
 	case MSR_EFER:
 		return handle_wrmsr_efer(vcpu, index, &msr_val);
+	case 0x12345678:
+		test_msr_12345678(vcpu, msr_val.low);
+		return 0;
 	default:
 		pr_info("unsupported wrmsr: index:0x%lx data_low:0x%x data_high:0x%x\n",
 			index, msr_val.low, msr_val.high);
