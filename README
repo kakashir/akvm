@@ -1,3 +1,22 @@
+Another KVM
+===============
+
+This is another KVM-like kernel module in drivers/staging/akvm to run the VM
+with INTEL VMX. It can run with the own device model and guest. No much MSRs
+supporting now because they're mostly ad-hoc(of cause some are supported by VMX)
+and not that necessary for a guest now just focus on mode switching & memory
+management, I plan to support more MSRs later when my guest OS start to use
+them. Exception injection is supported, APICv based interrupt injection is WIP.
+
+The device model works with this:
+https://github.com/kakashir/akvm_device_model/tree/master
+
+The guest kernel works with this(no BIOS, or you can call it BIOS LOL~):
+https://github.com/kakashir/akvm_guest/tree/public_version
+
+I play this on my 13th Gen Intel(R) Core(TM) i5-1335U based HP laptop with
+6.10 tree + my force-cpumask feature (see https://github.com/kakashir/akvm/tree/force_cpumask_last).
+
 Linux kernel
 ============
 
