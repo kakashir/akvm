@@ -8728,6 +8728,7 @@ static inline void sched_smt_present_dec(int cpu)
 
 static cpumask_var_t force_cpumasks[FORCE_CPUMASK_ALL];
 enum force_cpumask_type force_cpumask_index;
+DEFINE_PER_CPU(int, cpu_energy_type);
 
 static cpumask_var_t* __get_force_cpumask(enum force_cpumask_type t)
 {
@@ -8756,9 +8757,47 @@ void set_force_cpumask_index(int index)
 }
 EXPORT_SYMBOL(set_force_cpumask_index);
 
+static void set_force_cpumask(int cpu)
+{
+	cpumask_set_cpu(cpu, get_force_cpumask(FORCE_CPUMASK_ALL));
+	switch (per_cpu(cpu_energy_type, cpu)) {
+	case CPU_ET_ECORE:
+		cpumask_set_cpu(cpu,
+				get_force_cpumask(FORCE_CPUMASK_ECORE));
+		break;
+	case CPU_ET_PCORE:
+		cpumask_set_cpu(cpu,
+				get_force_cpumask(FORCE_CPUMASK_PCORE));
+		break;
+	default:
+		pr_warn("Unknow CPU energy type 0x%d for cpu %d\n",
+			per_cpu(cpu_energy_type, cpu), cpu);
+	}
+}
+
+static void clear_force_cpumask(int cpu)
+{
+	cpumask_clear_cpu(cpu, get_force_cpumask(FORCE_CPUMASK_ALL));
+	switch (per_cpu(cpu_energy_type, cpu)) {
+	case CPU_ET_ECORE:
+		cpumask_clear_cpu(cpu,
+				  get_force_cpumask(FORCE_CPUMASK_ECORE));
+		break;
+	case CPU_ET_PCORE:
+		cpumask_clear_cpu(cpu,
+				  get_force_cpumask(FORCE_CPUMASK_PCORE));
+		break;
+	default:
+		pr_warn("Unknow CPU energy type 0x%d for cpu %d\n",
+			per_cpu(cpu_energy_type, cpu), cpu);
+		}
+}
+
 int sched_cpu_activate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
+
+	set_force_cpumask(cpu);
 
 	/*
 	 * Clear the balance_push callback and prepare to schedule
@@ -8798,6 +8837,8 @@ int sched_cpu_deactivate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
 	int ret;
+
+	clear_force_cpumask(cpu);
 
 	ret = dl_bw_deactivate(cpu);
 
@@ -8980,6 +9021,8 @@ void __init sched_init_smp(void)
 	init_sched_dl_class();
 
 	sched_init_dl_servers();
+
+	set_force_cpumask(smp_processor_id());
 
 	sched_smp_initialized = true;
 }

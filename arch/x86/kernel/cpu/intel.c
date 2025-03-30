@@ -558,6 +558,32 @@ static const struct x86_cpu_id zmm_exclusion_list[] = {
 	{},
 };
 
+static void init_intel_cpu_energy_type(struct cpuinfo_x86 *c)
+{
+#ifdef CONFIG_SMP
+	int eax, ebx, ecx, edx;
+	unsigned int type;
+
+	cpuid_count(0x1a, 0, &eax, &ebx, &ecx ,&edx);
+	type = (unsigned int)eax >> 24;
+
+	switch(type) {
+	case 0x20:
+		this_cpu_write(cpu_energy_type, CPU_ET_ECORE);
+		pr_info("CPU %d is ECORES\n", smp_processor_id());
+		break;
+	case 0x40:
+		this_cpu_write(cpu_energy_type, CPU_ET_PCORE);
+		pr_info("CPU %d is PCORES\n", smp_processor_id());
+		break;
+	default:
+		this_cpu_write(cpu_energy_type, CPU_ET_PCORE);
+		pr_info("CPU %d is treated PCORES by default\n",
+			smp_processor_id());
+	}
+#endif
+}
+
 static void init_intel(struct cpuinfo_x86 *c)
 {
 	early_init_intel(c);
@@ -649,6 +675,7 @@ static void init_intel(struct cpuinfo_x86 *c)
 	split_lock_init();
 
 	intel_init_thermal(c);
+	init_intel_cpu_energy_type(c);
 }
 
 #ifdef CONFIG_X86_32
