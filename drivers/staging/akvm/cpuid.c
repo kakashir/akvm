@@ -39,7 +39,6 @@ static struct akvm_reverse_cpuid_entry akvm_reverse_cpuid[NAKVMCAPINTS] = {
 	[CPUID_6_EAX]		= R_CPUID(6, 0, REG_EAX),
 	[CPUID_8000_000A_EDX]	= R_CPUID(0x8000000a, 0, REG_EDX),
 	[CPUID_7_ECX]		= R_CPUID(7, 0, REG_ECX),
-	[CPUID_8000_0007_EBX]	= R_CPUID(0x80000007, 0, REG_EBX),
 	[CPUID_7_EDX]		= R_CPUID(7, 0, REG_EDX),
 	[CPUID_8000_001F_EAX]	= R_CPUID(0x8000001f, 0, REG_EAX),
 	[CPUID_8000_0021_EAX]	= R_CPUID(0x80000021, 0, REG_EAX),
@@ -52,6 +51,7 @@ static struct akvm_reverse_cpuid_entry akvm_reverse_cpuid[NAKVMCAPINTS] = {
 	[AKVM_CPUID_7_2_ECX]	= R_CPUID(0x7, 2, REG_ECX),
 	[AKVM_CPUID_7_2_EDX]	= R_CPUID(0x7, 2, REG_EDX),
 	[AKVM_CPUID_8000_0007_EDX] = R_CPUID(0x80000007, 0, REG_EDX),
+	[AKVM_CPUID_8000_0007_EBX] = R_CPUID(0x80000007, 0, REG_EBX),
 #undef R_CPUID
 };
 
@@ -95,7 +95,6 @@ static const char *cpuid_leaf_to_str(int cpuid_leaf)
 	__LEAF_TO_STR(CPUID_6_EAX);
 	__LEAF_TO_STR(CPUID_8000_000A_EDX);
 	__LEAF_TO_STR(CPUID_7_ECX);
-	__LEAF_TO_STR(CPUID_8000_0007_EBX);
 	__LEAF_TO_STR(CPUID_7_EDX);
 	__LEAF_TO_STR(CPUID_8000_001F_EAX);
 	__LEAF_TO_STR(CPUID_8000_0021_EAX);
@@ -108,6 +107,7 @@ static const char *cpuid_leaf_to_str(int cpuid_leaf)
 	__LEAF_TO_STR(AKVM_CPUID_7_2_ECX);
 	__LEAF_TO_STR(AKVM_CPUID_7_2_EDX);
 	__LEAF_TO_STR(AKVM_CPUID_8000_0007_EDX);
+	__LEAF_TO_STR(AKVM_CPUID_8000_0007_EBX);
 	default:
 		return "unknown cpuid leaf";
 	}
