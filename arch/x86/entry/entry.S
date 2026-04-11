@@ -119,7 +119,7 @@ SYM_FUNC_END(idt_do_interrupt_irqoff)
 
 .pushsection .noinstr.text, "ax"
 SYM_FUNC_START(idt_do_nmi_irqoff)
-	IDT_DO_EVENT_IRQOFF call asm_exc_nmi_kvm_vmx
+	IDT_DO_EVENT_IRQOFF call asm_exc_nmi_vmx
 SYM_FUNC_END(idt_do_nmi_irqoff)
 .popsection
 #endif

@@ -45,7 +45,7 @@ static int handle_excep_nmi_irqoff(struct vcpu_context *vcpu)
 	if (WARN_ON(intr_info.type != VMX_INTR_TYPE_NMI))
 		return -EINVAL;
 
-	__akvm_call_host_intr((unsigned long)asm_exc_nmi_kvm_vmx);
+	__akvm_call_host_intr((unsigned long)asm_exc_nmi_vmx);
 	return 0;
 }
 
