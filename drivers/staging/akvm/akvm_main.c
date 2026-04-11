@@ -359,3 +359,4 @@ static int __init akvm_init(void)
 module_init(akvm_init);
 module_exit(akvm_exit);
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Another KVM toy");
