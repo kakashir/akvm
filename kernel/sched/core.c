@@ -8765,6 +8765,10 @@ static void set_force_cpumask(int cpu)
 		cpumask_set_cpu(cpu,
 				get_force_cpumask(FORCE_CPUMASK_ECORE));
 		break;
+	case CPU_ET_LECORE:
+		cpumask_set_cpu(cpu,
+				get_force_cpumask(FORCE_CPUMASK_LECORE));
+		break;
 	case CPU_ET_PCORE:
 		cpumask_set_cpu(cpu,
 				get_force_cpumask(FORCE_CPUMASK_PCORE));
@@ -8782,6 +8786,10 @@ static void clear_force_cpumask(int cpu)
 	case CPU_ET_ECORE:
 		cpumask_clear_cpu(cpu,
 				  get_force_cpumask(FORCE_CPUMASK_ECORE));
+		break;
+	case CPU_ET_LECORE:
+		cpumask_clear_cpu(cpu,
+				  get_force_cpumask(FORCE_CPUMASK_LECORE));
 		break;
 	case CPU_ET_PCORE:
 		cpumask_clear_cpu(cpu,

@@ -16,6 +16,7 @@ struct opt_map {
 static struct opt_map str_to_opt[] = {
 	{.str = "pcore", .opt = FORCE_CPUMASK_PCORE},
 	{.str = "ecore", .opt = FORCE_CPUMASK_ECORE},
+	{.str = "lecore", .opt = FORCE_CPUMASK_LECORE},
 	{.str = "all", .opt = FORCE_CPUMASK_ALL},
 	{.str = NULL, .opt = 0},
 };

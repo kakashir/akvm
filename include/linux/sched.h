@@ -2552,6 +2552,8 @@ DEFINE_LOCK_GUARD_0(migrate, migrate_disable(), migrate_enable())
 
 #define CPU_ET_ECORE 1
 #define CPU_ET_PCORE 2
+#define CPU_ET_LECORE 3
+
 DECLARE_PER_CPU(int, cpu_energy_type);
 
 #endif

@@ -569,8 +569,19 @@ static void init_intel_cpu_energy_type(struct cpuinfo_x86 *c)
 
 	switch(type) {
 	case 0x20:
-		this_cpu_write(cpu_energy_type, CPU_ET_ECORE);
-		pr_info("CPU %d is ECORES\n", smp_processor_id());
+		cpuid_count(4, 3, &eax, &ebx, &ecx, &edx);
+		/* PantherLake has no official
+		 * Check L3 cache existence to distinguish the e core and
+		 * lpe core on PantherLake SoC since no other official way
+		 * to do this.
+		 */
+		if (eax) {
+			this_cpu_write(cpu_energy_type, CPU_ET_ECORE);
+			pr_info("CPU %d is ECORES\n", smp_processor_id());
+		} else {
+			this_cpu_write(cpu_energy_type, CPU_ET_LECORE);
+			pr_info("CPU %d is LECORES\n", smp_processor_id());
+		}
 		break;
 	case 0x40:
 		this_cpu_write(cpu_energy_type, CPU_ET_PCORE);
