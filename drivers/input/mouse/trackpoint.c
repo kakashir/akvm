@@ -25,6 +25,7 @@ static const char * const trackpoint_variants[] = {
 	[TP_VARIANT_NXP]		= "NXP",
 	[TP_VARIANT_JYT_SYNAPTICS]	= "JYT_Synaptics",
 	[TP_VARIANT_SYNAPTICS]		= "Synaptics",
+	[TP_VARIANT_ELAN_ID_7]		= "Elan_variant7"
 };
 
 /*
@@ -283,6 +284,7 @@ static int trackpoint_start_protocol(struct psmouse *psmouse,
 	case TP_VARIANT_IBM:
 	case TP_VARIANT_ALPS:
 	case TP_VARIANT_ELAN:
+	case TP_VARIANT_ELAN_ID_7:
 	case TP_VARIANT_NXP:
 	case TP_VARIANT_JYT_SYNAPTICS:
 	case TP_VARIANT_SYNAPTICS:
