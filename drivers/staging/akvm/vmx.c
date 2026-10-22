@@ -10,9 +10,9 @@ int probe_vmx_basic_info(struct vmx_capability *info)
 {
 	u32 proc_based_allowed_1;
 
-	rdmsrl(MSR_IA32_VMX_BASIC, info->msr_vmx_basic);
-	rdmsrl(MSR_IA32_VMX_MISC, info->msr_vmx_misc);
-	rdmsrl(MSR_IA32_VMX_EPT_VPID_CAP, info->msr_ept_vpid);
+	rdmsrq(MSR_IA32_VMX_BASIC, info->msr_vmx_basic);
+	rdmsrq(MSR_IA32_VMX_MISC, info->msr_vmx_misc);
+	rdmsrq(MSR_IA32_VMX_EPT_VPID_CAP, info->msr_ept_vpid);
 
 	vmx_get_ctl_msr_fix_bit(MSR_IA32_VMX_TRUE_ENTRY_CTLS,
 				&info->vmentry_fixed0,

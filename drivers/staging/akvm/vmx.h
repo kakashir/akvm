@@ -529,7 +529,7 @@ static inline void vmx_get_ctl_msr_fix_bit2(int msr,
 {
 	u64 val;
 
-	rdmsrl(msr, val);
+	rdmsrq(msr, val);
 
 	*ctl_fix_0 = ~val;
 	*ctl_fix_1 = 0;
@@ -540,10 +540,10 @@ static inline void vmx_get_cr_fix_bit(int msr_fixed0, int msr_fixed1,
 {
 	u64 val;
 
-	rdmsrl(msr_fixed0, val);
+	rdmsrq(msr_fixed0, val);
 	*cr_fixed1 = val;
 
-	rdmsrl(msr_fixed1, val);
+	rdmsrq(msr_fixed1, val);
 	*cr_fixed0 = ~val;
 }
 

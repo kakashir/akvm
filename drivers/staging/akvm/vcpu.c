@@ -647,25 +647,25 @@ static void save_host_state(struct vm_host_state *state)
 	vmcs_write_natural(VMX_HOST_CR4, __read_cr4());
 	state->cr8 = read_cr8();
 
-	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, val);
+	rdmsrq(MSR_CORE_PERF_GLOBAL_CTRL, val);
 	vmcs_write_64(VMX_HOST_IA32_PERF_GLOBAL_CTL, val);
 	akvm_pr_info("perf_global_ctl: 0x%lx\n", val);
 
-	rdmsrl(MSR_IA32_CR_PAT, val);
+	rdmsrq(MSR_IA32_CR_PAT, val);
 	vmcs_write_64(VMX_HOST_IA32_PAT, val);
 	akvm_pr_info("ia32_pat: 0x%lx\n", val);
 
-	rdmsrl(MSR_EFER, val);
+	rdmsrq(MSR_EFER, val);
 	vmcs_write_64(VMX_HOST_IA32_EFER, val);
 	akvm_pr_info("ia32_efer: 0x%lx\n", val);
 
-	rdmsrl(MSR_IA32_PKRS, val);
+	rdmsrq(MSR_IA32_PKRS, val);
 	vmcs_write_64(VMX_HOST_IA32_PKRS, val);
 	akvm_pr_info("ia32_pkrs: 0x%lx\n", val);
 
-	rdmsrl(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
-	rdmsrl(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
-	rdmsrl(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
+	rdmsrq(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
+	rdmsrq(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
+	rdmsrq(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
 
 	for (i = 0; i < 8; ++i) {
 		if (i == 4 || i == 5)
@@ -693,9 +693,9 @@ static void load_host_state(struct vm_host_state *state)
 		write_dr(i, state->dr[i]);
 	}
 
-	wrmsrl(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
-	wrmsrl(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
-	wrmsrl(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
+	wrmsrq(MSR_IA32_DEBUGCTLMSR, state->msr_debugctl);
+	wrmsrq(MSR_IA32_RTIT_CTL, state->msr_rtit_ctl);
+	wrmsrq(MSR_ARCH_LBR_CTL, state->msr_lbr_ctl);
 
 }
 
