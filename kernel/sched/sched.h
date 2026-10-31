@@ -4264,8 +4264,6 @@ static inline  bool is_valid_force_cpumask_type(enum force_cpumask_type t)
 }
 
 extern enum force_cpumask_type force_cpumask_index;
-void init_task_force_cpumask(unsigned long clone_flags,
-			     struct task_struct *p);
 struct cpumask* get_force_cpumask(enum force_cpumask_type t);
 void set_force_cpumask_index(int index);
 long sched_setaffinity_task_rcu(struct task_struct *p,

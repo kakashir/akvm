@@ -910,6 +910,53 @@ static void __used hrtick_clear(struct rq *rq)
 		hrtimer_cancel(&rq->hrtick_timer);
 }
 
+static void task_tick_force_cpumask(struct rq *rq, struct task_struct *curr)
+{
+	struct callback_head *work = &curr->force_cpumask_work;
+
+	if (!is_valid_force_cpumask_type(force_cpumask_index))
+		return;
+
+	if (force_cpumask_index == curr->force_cpumask_index)
+		return;
+
+	if (work->next != work)
+		return;
+
+	if (!curr->mm || (curr->flags & (PF_EXITING | PF_KTHREAD)))
+		return;
+
+	task_work_add(curr, work, TWA_RESUME);
+}
+
+static void task_force_cpumask_work(struct callback_head *work)
+{
+	struct task_struct *p = current;
+
+	work->next = work;
+
+	if (p->flags & PF_EXITING)
+		return;
+
+	p->force_cpumask_index = force_cpumask_index;
+
+	/* rcu_read_lock(); */
+	sched_setaffinity_task_rcu(p, get_force_cpumask(force_cpumask_index));
+	/* rcu_read_unlock(); */
+}
+
+static inline void call_task_tick(const struct sched_class *class,
+				  struct rq *rq, struct task_struct *curr, int queued)
+{
+	task_tick_force_cpumask(rq, curr);
+	class->task_tick(rq, curr, queued);
+}
+
+static void init_task_force_cpumask(unsigned long clone_flags, struct task_struct *p)
+{
+	p->force_cpumask_work.next = &p->force_cpumask_work;
+	init_task_work(&p->force_cpumask_work, task_force_cpumask_work);
+}
 /*
  * High-resolution timer tick.
  * Runs from hardirq context with interrupts disabled.
@@ -923,7 +970,7 @@ static enum hrtimer_restart hrtick(struct hrtimer *timer)
 
 	rq_lock(rq, &rf);
 	update_rq_clock(rq);
-	rq->donor->sched_class->task_tick(rq, rq->donor, 1);
+	call_task_tick(rq->donor->sched_class, rq, rq->donor, 1);
 	rq_unlock(rq, &rf);
 
 	return HRTIMER_NORESTART;
@@ -5809,7 +5856,7 @@ void sched_tick(void)
 	if (dynamic_preempt_lazy() && tif_test_bit(TIF_NEED_RESCHED_LAZY))
 		resched_curr(rq);
 
-	donor->sched_class->task_tick(rq, donor, 0);
+	call_task_tick(donor->sched_class, rq, donor, 0);
 	if (sched_feat(LATENCY_WARN))
 		resched_latency = cpu_resched_latency(rq);
 	calc_global_load_tick(rq);
@@ -5905,7 +5952,7 @@ static void sched_tick_remote(struct work_struct *work)
 				u64 delta = rq_clock_task(rq) - curr->se.exec_start;
 				WARN_ON_ONCE(delta > (u64)NSEC_PER_SEC * 30);
 			}
-			curr->sched_class->task_tick(rq, curr, 0);
+			call_task_tick(curr->sched_class, rq, curr, 0);
 
 			calc_load_nohz_remote(rq);
 		}
