@@ -32,6 +32,27 @@ TRACE_EVENT(sched_kthread_stop,
 	TP_printk("comm=%s pid=%d", __get_str(comm), __entry->pid)
 );
 
+TRACE_EVENT(force_cpumask_event,
+
+        TP_PROTO(struct task_struct *t, int step),
+
+        TP_ARGS(t, step),
+
+	TP_STRUCT__entry(
+		__string(	comm,	t->comm		)
+		__field(	pid_t,	pid		)
+		__field(	int,	step		)
+	),
+
+	TP_fast_assign(
+		__assign_str(comm);
+		__entry->pid	= t->pid;
+		__entry->step	= step;
+	),
+
+       TP_printk("step=%d comm=%s pid=%d", __entry->step, __get_str(comm), __entry->pid)
+);
+
 /*
  * Tracepoint for the return value of the kthread stopping:
  */
