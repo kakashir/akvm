@@ -8804,6 +8804,12 @@ void set_force_cpumask_index(int index)
 }
 EXPORT_SYMBOL(set_force_cpumask_index);
 
+int get_force_cpumask_index(void)
+{
+	return force_cpumask_index;
+}
+EXPORT_SYMBOL(get_force_cpumask_index);
+
 static void set_force_cpumask(int cpu)
 {
 	cpumask_set_cpu(cpu, get_force_cpumask(FORCE_CPUMASK_ALL));
