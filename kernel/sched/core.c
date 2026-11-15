@@ -914,9 +914,6 @@ static void task_tick_force_cpumask(struct rq *rq, struct task_struct *curr)
 {
 	struct callback_head *work = &curr->force_cpumask_work;
 
-	if (!is_valid_force_cpumask_type(force_cpumask_index))
-		return;
-
 	if (force_cpumask_index == curr->force_cpumask_index)
 		return;
 
@@ -932,6 +929,7 @@ static void task_tick_force_cpumask(struct rq *rq, struct task_struct *curr)
 static void task_force_cpumask_work(struct callback_head *work)
 {
 	struct task_struct *p = current;
+	struct cpumask new;
 
 	work->next = work;
 
@@ -941,7 +939,8 @@ static void task_force_cpumask_work(struct callback_head *work)
 	p->force_cpumask_index = force_cpumask_index;
 
 	/* rcu_read_lock(); */
-	sched_setaffinity_task_rcu(p, get_force_cpumask(force_cpumask_index));
+	get_force_cpumask(&new);
+	sched_setaffinity_task_rcu(p, &new);
 	/* rcu_read_unlock(); */
 }
 
@@ -8776,6 +8775,7 @@ static inline void sched_smt_present_dec(int cpu)
 static cpumask_var_t force_cpumasks[FORCE_CPUMASK_ALL];
 enum force_cpumask_type force_cpumask_index;
 DEFINE_PER_CPU(int, cpu_energy_type);
+static struct cpumask force_cpumask;
 
 static cpumask_var_t* __get_force_cpumask(enum force_cpumask_type t)
 {
@@ -8785,7 +8785,7 @@ static cpumask_var_t* __get_force_cpumask(enum force_cpumask_type t)
 	return &force_cpumasks[t - 1];
 }
 
-struct cpumask* get_force_cpumask(enum force_cpumask_type t)
+static struct cpumask* get_force_cpumask_by_type(enum force_cpumask_type t)
 {
 	cpumask_var_t* ret;
 
@@ -8795,36 +8795,36 @@ struct cpumask* get_force_cpumask(enum force_cpumask_type t)
 	return *ret;
 }
 
-void set_force_cpumask_index(int index)
-{
-	if (!is_valid_force_cpumask_type(index))
-		return;
 
-	force_cpumask_index = index;
+void get_force_cpumask(struct cpumask *mask)
+{
+	cpumask_copy(mask, &force_cpumask);
 }
-EXPORT_SYMBOL(set_force_cpumask_index);
+EXPORT_SYMBOL(get_force_cpumask);
 
-int get_force_cpumask_index(void)
+void set_force_cpumask(const struct cpumask *new)
 {
-	return force_cpumask_index;
+	cpumask_copy(&force_cpumask, new);
+	smp_wmb();
+	++force_cpumask_index;
 }
-EXPORT_SYMBOL(get_force_cpumask_index);
+EXPORT_SYMBOL(set_force_cpumask);
 
-static void set_force_cpumask(int cpu)
+static void set_force_cpumask_type(int cpu)
 {
-	cpumask_set_cpu(cpu, get_force_cpumask(FORCE_CPUMASK_ALL));
+	cpumask_set_cpu(cpu, get_force_cpumask_by_type(FORCE_CPUMASK_ALL));
 	switch (per_cpu(cpu_energy_type, cpu)) {
 	case CPU_ET_ECORE:
 		cpumask_set_cpu(cpu,
-				get_force_cpumask(FORCE_CPUMASK_ECORE));
+				get_force_cpumask_by_type(FORCE_CPUMASK_ECORE));
 		break;
 	case CPU_ET_LECORE:
 		cpumask_set_cpu(cpu,
-				get_force_cpumask(FORCE_CPUMASK_LECORE));
+				get_force_cpumask_by_type(FORCE_CPUMASK_LECORE));
 		break;
 	case CPU_ET_PCORE:
 		cpumask_set_cpu(cpu,
-				get_force_cpumask(FORCE_CPUMASK_PCORE));
+				get_force_cpumask_by_type(FORCE_CPUMASK_PCORE));
 		break;
 	default:
 		pr_warn("Unknow CPU energy type 0x%d for cpu %d\n",
@@ -8834,19 +8834,19 @@ static void set_force_cpumask(int cpu)
 
 static void clear_force_cpumask(int cpu)
 {
-	cpumask_clear_cpu(cpu, get_force_cpumask(FORCE_CPUMASK_ALL));
+	cpumask_clear_cpu(cpu, get_force_cpumask_by_type(FORCE_CPUMASK_ALL));
 	switch (per_cpu(cpu_energy_type, cpu)) {
 	case CPU_ET_ECORE:
 		cpumask_clear_cpu(cpu,
-				  get_force_cpumask(FORCE_CPUMASK_ECORE));
+				  get_force_cpumask_by_type(FORCE_CPUMASK_ECORE));
 		break;
 	case CPU_ET_LECORE:
 		cpumask_clear_cpu(cpu,
-				  get_force_cpumask(FORCE_CPUMASK_LECORE));
+				  get_force_cpumask_by_type(FORCE_CPUMASK_LECORE));
 		break;
 	case CPU_ET_PCORE:
 		cpumask_clear_cpu(cpu,
-				  get_force_cpumask(FORCE_CPUMASK_PCORE));
+				  get_force_cpumask_by_type(FORCE_CPUMASK_PCORE));
 		break;
 	default:
 		pr_warn("Unknow CPU energy type 0x%d for cpu %d\n",
@@ -8858,7 +8858,7 @@ int sched_cpu_activate(unsigned int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
 
-	set_force_cpumask(cpu);
+	set_force_cpumask_type(cpu);
 
 	/*
 	 * Clear the balance_push callback and prepare to schedule
@@ -9083,7 +9083,7 @@ void __init sched_init_smp(void)
 
 	sched_init_dl_servers();
 
-	set_force_cpumask(smp_processor_id());
+	set_force_cpumask_type(smp_processor_id());
 
 	sched_smp_initialized = true;
 }
@@ -9309,13 +9309,13 @@ void __init sched_init(void)
 
 	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ECORE),
 			  GFP_KERNEL);
-	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ECORE));
+	cpumask_clear(get_force_cpumask_by_type(FORCE_CPUMASK_ECORE));
 	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_PCORE),
 			  GFP_KERNEL);
-	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_PCORE));
+	cpumask_clear(get_force_cpumask_by_type(FORCE_CPUMASK_PCORE));
 	alloc_cpumask_var(__get_force_cpumask(FORCE_CPUMASK_ALL),
 			  GFP_KERNEL);
-	cpumask_clear(get_force_cpumask(FORCE_CPUMASK_ALL));
+	cpumask_clear(get_force_cpumask_by_type(FORCE_CPUMASK_ALL));
 	force_cpumask_index = FORCE_CPUMASK_ALL;
 
 	scheduler_running = 1;

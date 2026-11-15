@@ -4,77 +4,50 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/sched.h>
+#include <linux/cpumask.h>
+
 #include "internal.h"
 
-extern void set_force_cpumask_index(int index);
-extern int get_force_cpumask_index(void);
-
-struct opt_map {
-	const char *str;
-	int opt;
-};
-
-static struct opt_map str_to_opt[] = {
-	{.str = "pcore\n", .opt = FORCE_CPUMASK_PCORE},
-	{.str = "ecore\n", .opt = FORCE_CPUMASK_ECORE},
-	{.str = "lecore\n", .opt = FORCE_CPUMASK_LECORE},
-	{.str = "all\n", .opt = FORCE_CPUMASK_ALL},
-	{.str = NULL, .opt = 0},
-};
+extern void get_force_cpumask(struct cpumask *mask);
+extern void set_force_cpumask(const struct cpumask *new);
 
 static ssize_t force_cpumask_proc_write(struct file *file, const char __user *ubuf,
 					size_t size, loff_t *offset)
 {
-	char *buf;
-	int i = 0;
+	ssize_t ret;
+	struct cpumask new;
 
-	buf = kmalloc(size + 1, GFP_KERNEL_ACCOUNT);
-	if (!buf)
-		return -ENOMEM;
-
-	if (copy_from_user(buf, ubuf, size)) {
-		pr_info("failed to copy user content\n");
-		return -EINVAL;
-	}
-	buf[size] = 0;
-
-
-	while(str_to_opt[i].str) {
-		if (sysfs_streq(str_to_opt[i].str, buf))
-			break;
-		++i;
+	ret = cpumask_parselist_user(ubuf, size, &new);
+	if (ret) {
+		pr_err("failed to parse cpumask list:%ld\n", ret);
+		return ret;
 	}
 
-	if (str_to_opt[i].str) {
-		pr_info("Set force cpumask to:%s\n", str_to_opt[i].str);
-		set_force_cpumask_index(str_to_opt[i].opt);
-	}
+	pr_info("Set force cpumask to:%*pbl\n", cpumask_pr_args(&new));
+	set_force_cpumask(&new);
 
-	kfree(buf);
 	return size;
 }
 
-static ssize_t force_cpumask_proc_read(struct file *file, char __user *buf,
+static ssize_t force_cpumask_proc_read(struct file *file, char __user *ubuf,
 				       size_t nbytes, loff_t *ppos)
 {
-	int cur_index = get_force_cpumask_index();
-	int  i;
-	const char *str = NULL;
-	size_t cp_size;
+	ssize_t cp_size;
+	char buf[16];
+	struct cpumask current_mask;
 
-	for(i = 0; str_to_opt[i].str; ++i) {
-		if (str_to_opt[i].opt == cur_index) {
-			str = str_to_opt[i].str;
-			break;
-		}
+	get_force_cpumask(&current_mask);
+	cp_size = cpumap_print_list_to_buf(buf, &current_mask,
+					   *ppos, sizeof(buf));
+	if (cp_size > 0) {
+		if (copy_to_user(ubuf, buf, cp_size))
+			return -EFAULT;
+	} else if (!cp_size) {
+		put_user('\n', ubuf);
+		cp_size = 1;
+	} else {
+		cp_size = 0;
 	}
-
-	if (!str)
-		return 0;
-
-	cp_size = min(strlen(str + *ppos), nbytes);
-	if (copy_to_user(buf, str + *ppos, cp_size))
-		return -EFAULT;
 
 	*ppos += cp_size;
 	return cp_size;

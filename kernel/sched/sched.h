@@ -4264,9 +4264,8 @@ static inline  bool is_valid_force_cpumask_type(enum force_cpumask_type t)
 }
 
 extern enum force_cpumask_type force_cpumask_index;
-struct cpumask* get_force_cpumask(enum force_cpumask_type t);
-void set_force_cpumask_index(int index);
-int get_force_cpumask_index(void);
+void get_force_cpumask(struct cpumask *mask);
+void set_force_cpumask(const struct cpumask *new);
 long sched_setaffinity_task_rcu(struct task_struct *p,
 				const struct cpumask *in_mask);
 #endif /* _KERNEL_SCHED_SCHED_H */
