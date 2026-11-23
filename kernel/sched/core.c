@@ -923,7 +923,7 @@ static void task_tick_force_cpumask(struct rq *rq, struct task_struct *curr)
 	if (!curr->mm || (curr->flags & (PF_EXITING | PF_KTHREAD)))
 		return;
 
-	task_work_add(curr, work, TWA_RESUME);
+	task_work_add(curr, work, TWA_SIGNAL_NO_IPI);
 }
 
 static void task_force_cpumask_work(struct callback_head *work)

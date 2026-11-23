@@ -1201,26 +1201,20 @@ long sched_setaffinity_task_rcu(struct task_struct *p,
 	struct cpumask *user_mask;
 	int retval;
 
-	WARN_ON_ONCE(!rcu_read_lock_held());
-
-	/* Prevent p going away */
-	get_task_struct(p);
-
-	if (p->flags & PF_NO_SETAFFINITY) {
-		retval = -EINVAL;
-		goto out_put_task;
-	}
+	if (p->flags & PF_NO_SETAFFINITY)
+		return -EINVAL;
 
 	if (!check_same_owner(p)) {
+		guard(rcu)();
 		if (!ns_capable(__task_cred(p)->user_ns, CAP_SYS_NICE)) {
 			retval = -EPERM;
-			goto out_put_task;
+			goto out;
 		}
 	}
 
 	retval = security_task_setscheduler(p);
 	if (retval)
-		goto out_put_task;
+		goto out;
 
 	/*
 	 * With non-SMP configs, user_cpus_ptr/user_mask isn't used and
@@ -1231,7 +1225,7 @@ long sched_setaffinity_task_rcu(struct task_struct *p,
 		cpumask_copy(user_mask, in_mask);
 	} else {
 		retval = -ENOMEM;
-		goto out_put_task;
+		goto out;
 	}
 
 	ac = (struct affinity_context){
@@ -1242,9 +1236,7 @@ long sched_setaffinity_task_rcu(struct task_struct *p,
 
 	retval = __sched_setaffinity(p, &ac);
 	kfree(ac.user_mask);
-
-out_put_task:
-	put_task_struct(p);
+ out:
 	return retval;
 }
 
@@ -1252,15 +1244,11 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 {
 	int retval;
 
-	rcu_read_lock();
 	CLASS(find_get_task, p)(pid);
-	if (!p) {
-		rcu_read_unlock();
+	if (!p)
 		return -ESRCH;
-	}
 
 	retval = sched_setaffinity_task_rcu(p, in_mask);
-	rcu_read_unlock();
 
 	return retval;
 }
